@@ -1,98 +1,115 @@
-# Council Assistant
+# 🏛️ Council Assistant
 
-This project enables users (e.g. councillors, researchers, the public) to interact with local government documents through a conversational AI interface. It processes, structures, and indexes council PDFs to support future integration with retrieval-augmented generation (RAG) systems.
+**Council Assistant** is a professional-grade Streamlit-based web app for searching and summarising local government documents. It uses OpenAI embeddings and a meeting-centric file structure to make committee reports, agendas, and minutes searchable, contextual, and linkable.
 
 ---
 
-## 📁 Project Folder Structure
+## ✅ Project Status
 
-```
+| Feature                            | Status       |
+|-----------------------------------|--------------|
+| PDF scraping & metadata generation | ✅ Complete  |
+| Text cleaning & chunking pipeline | ✅ With LlamaIndex (semantic) |
+| Metadata-backed chunking          | ✅ Per-file, with URL support |
+| FAISS index building (resumable)  | ✅ Safe & restartable |
+| OpenAI embedding generation       | 🟡 In Progress |
+| Streamlit interface               | 🟡 MVP started |
+| Filtering by committee/date/type | 🔜 Planned   |
+| Advanced table handling           | 🔜 Planned   |
+| Deployment                        | 🔜 Streamlit sharing / Docker |
+
+---
+
+## 📁 Folder Structure
+
+```plaintext
 council-assistant/
 ├── data/
-│   └── council_documents/
-│       ├── committees/
-│       │   └── <committee_id>/
-│       │       └── <subcommittee_or_category>/
-│       │           └── YYYY-MM-DD/                  # Each meeting
-│       │               ├── originals/               # Original PDFs
-│       │               ├── metadata.json            # Metadata per meeting
-│       │               └── *_chunks.json            # Cleaned and chunked text
-│       ├── full_council/
-│       └── cabinet/
-│
-├── scripts/
-│   ├── process_all.py                # Runs full pipeline
-│   ├── delete_all_chunks.py          # Wipe chunk files
-│   ├── retro_sort_existing_files.py  # Sort legacy unsorted files
-│   ├── generate_all_metadata.py      # Create metadata.json files
-│   └── infer_dates_from_text.py      # Pull missing dates from first-page text
+│   ├── council_documents/
+│   │   └── committees/<committee>/<meeting_date>/
+│   │       ├── originals/                        # Raw PDFs
+│   │       ├── *_chunks.json                     # Cleaned + chunked text
+│   │       ├── metadata.json                     # Metadata with URL, type, date
+│   └── embeddings/
+│       └── council_index.faiss                   # FAISS index
 │
 ├── app/
-│   ├── __init__.py
-│   └── utils/
-│       ├── processor.py              # Full PDF → chunks pipeline
-│       ├── date_extractor.py         # Date inference from text and filename
-│       ├── text_extractor.py         # PDF page-level text extraction
-│       └── file_walker.py            # Recursively find valid PDFs
+│   ├── embeddings/
+│   │   ├── embedder.py
+│   │   ├── index_builder_resumable.py
+│   │   └── retriever.py
+│   ├── utils/
+│   │   ├── cleaner.py
+│   │   ├── chunker.py (LlamaIndex splitter)
+│   │   ├── file_walker.py
+│   │   └── processor.py
+│   └── streamlit_app.py                          # (WIP) Streamlit frontend
 │
-└── notebooks/                        # For prototyping and demos
+├── scripts/
+│   ├── process_all.py                            # Run full pipeline
+│   ├── delete_all_chunks.py
+│   ├── generate_metadata.py
+│   ├── scan_unsorted_for_dates.py
+│   └── create_meeting_folders.py
 ```
 
 ---
 
+## 🧠 Technologies
 
-## ✅ Features Implemented
-
-- 🔍 **PDF Date Detection**: Extracts meeting dates from PDF first pages using regex patterns
-- 📂 **Auto-Renaming & Sorting**: Renames and relocates PDFs to dated meeting folders based on extracted or embedded date
-- 📄 **Text Extraction**: Uses `pdfplumber` to extract and clean text from PDFs
-- ✂️ **Chunking**: Splits clean text into fixed-length chunks for downstream embedding
-- 📦 **Chunk Storage**: Saves text chunks as JSON next to their source documents (`*_chunks.json`)
-- 🧾 **Metadata Indexing**: (In progress) Generates `metadata.json` in each meeting folder
-- 🗃️ **Hybrid Document Handling**:
-  - Narrative and scanned PDFs processed into chunks
-  - Financial / tabular documents preserved in `tables/` subfolders for custom handling
+- **OpenAI Embeddings** (e.g. `text-embedding-3-small`)
+- **FAISS** for fast vector search
+- **LlamaIndex** for semantic-aware text splitting
+- **Streamlit** for frontend
+- **PDFplumber + custom cleaner** for extraction
+- **Metadata.json** links each chunk to its file, type, committee, URL, etc.
 
 ---
 
-## 🛠 Useful Scripts
+## 💡 Usage Guide
 
-| Script                          | Purpose                                        |
-|--------------------------------|------------------------------------------------|
-| `rename_and_chunk.py`          | Clean, chunk and save text from PDFs          |
-| `retro_sort_existing_files.py` | Moves files into proper `YYYY-MM-DD` folders  |
-| `scan_unsorted_for_dates.py`   | Logs first-page date matches for untagged PDFs |
-| `generate_metadata.py`         | (Planned) Create `metadata.json` for each meeting |
+1. **Scrape & save PDFs**  
+   PDFs and metadata are saved under the correct `committees/<date>/originals/` folders automatically.
 
----
-## 🛠️ Current Status
+2. **Run the chunking pipeline**  
+   ```bash
+   export PYTHONPATH=.
+   python scripts/process_all.py
+   ```
 
-- ✅ Folder and data model finalized
-- ✅ PDF renaming, chunking, and date inference working
-- ✅ Metadata system in place
-- ✅ Scripts modular and reusable
-- ⏳ Next step: build vector store and frontend chat interface
+3. **Generate embeddings (resumable-safe)**  
+   ```bash
+   export PYTHONPATH=.
+   python app/embeddings/index_builder_resumable.py
+   ```
 
----
-
-## 🚀 Next Steps
-
-- Vector database + embedding generator
-- Streamlit frontend for end-user questions
-- Option to filter by committee/date/topic
+4. **Launch Streamlit frontend**  
+   *(Once MVP is complete)*  
+   ```bash
+   streamlit run app/streamlit_app.py
+   ```
 
 ---
 
-## 🧠 Tech Stack
-- Python 3.10+
-- pdfplumber
-- PyPDF2
-- Streamlit (planned)
-- OpenAI API (planned for GPT-4 Turbo)
-- FAISS or Qdrant (for vector indexing)
+## 🛡️ Robustness Features
+
+- ✅ Skips already chunked files
+- ✅ Resumable embedding with checkpointed saving
+- ✅ Metadata validation per file
+- 🛠️ Ongoing improvements to handle tables, authentication, and caching
 
 ---
 
-## Author
+## 🔜 Roadmap
 
-Built by [Lucie G] — Kent-based councillor and political technologist.
+- [ ] Streamlit interface with document filters
+- [ ] Table extraction and CSV export
+- [ ] Incremental file watcher (every 15 mins)
+- [ ] Query logging and insights
+- [ ] Authentication for multi-user deployment
+
+---
+
+## 🤝 License
+
+MIT License – build your own local AI assistant for civic transparency.
