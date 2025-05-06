@@ -5,6 +5,14 @@ Skips already-processed files unless 'force' is specified.
 """
 import os
 
+def find_all_chunks(root_dir="data/council_documents"):
+    import os
+    chunk_files = []
+    for dirpath, _, filenames in os.walk(root_dir):
+        for file in filenames:
+            if file.endswith("_chunks.json"):
+                chunk_files.append(os.path.join(dirpath, file))
+    return chunk_files
 
 def find_all_pdfs(root_dir, extension=".pdf"):
     pdf_files = []
