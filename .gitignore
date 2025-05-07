@@ -1,9 +1,31 @@
+# Python cache and system files
 __pycache__/
 *.py[cod]
+.DS_Store
+
+# VSCode and environment files
 .vscode/
-.ipynb_checkpoints/
 .env
 *.env
-data/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore all data files except for README.md (whitelist pattern)
+data/*
+!data/README.md
+
+# Ignore embedding artifacts and other generated data
+data/**/originals/*
+data/**/chunks/*
+data/**/duplicates/*
+data/**/processed_chunks/*
+data/**/embeddings/*
+data/**/register/*
+data/**/doc_id_register.json
+data/**/document_manifest.jsonl
+data/**/metadata*.jsonl
+data/**/council_index*.faiss
+
+# Legacy storage folder
 storage/
-.DS_Store
