@@ -28,4 +28,4 @@ data/**/metadata*.jsonl
 data/**/council_index*.faiss
 
 # Legacy storage folder
-storage/
+storage/storage/*.json
