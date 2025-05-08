@@ -15,10 +15,18 @@ council-assistant/
 ├── archive/                         # Archived legacy scripts or versions no longer in use
 │
 ├── data/
-│   ├── council_documents/          # Meeting-centric raw documents (PDFs)
-│   │   ├── cabinet/
+│   ├── council_documents/                    # Meeting-centric raw documents (PDFs)
+│   │   ├── cabinet/                          # Top-level committee folder
+│   │   │   ├── 2025-01-30/                   # Meeting date
+│   │   │   │   ├── originals/                # Original scraped PDFs
+│   │   │   │   ├── chunks/                   # Chunked JSON files (optional, future)
+│   │   │   │   └── metadata.json             # Metadata describing documents in this meeting
 │   │   ├── full_council/
-│   │   └── duplicates/             # Duplicate PDFs safely moved here during de-duplication
+│   │   │   ├── 2025-03-13/
+│   │   │   │   ├── originals/
+│   │   │   │   ├── chunks/
+│   │   │   │   └── metadata.json
+│   │   └── duplicates/                       # Duplicate PDFs safely moved here during de-duplication
 │   │
 │   ├── embeddings/                 # FAISS indexes + embedding metadata
 │   │   ├── council_index.faiss

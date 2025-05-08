@@ -12,14 +12,15 @@ from openai import OpenAI
 from typing import List
 
 # === CONFIGURATION ===
-EMBEDDING_MODEL = "text-embedding-3-large"
-EMBEDDING_DIM = 3072
+EMBEDDING_TYPE = os.getenv("EMBEDDING_TYPE", "small")  # options: "small", "large"
+EMBEDDING_MODEL = "text-embedding-3-small" if EMBEDDING_TYPE == "small" else "text-embedding-3-large"
+EMBEDDING_DIM = 1536 if EMBEDDING_TYPE == "small" else 3072
 BATCH_SIZE = 100
 BASE_DIR = "data/processed_chunks"
 CHUNK_SUFFIX = "_chunks.json"
-DOC_ID_REGISTER_PATH = "data/doc_id_register.json"
-OUTPUT_FAISS_PATH = "data/embeddings/council_index_large.faiss"
-OUTPUT_METADATA_PATH = "data/embeddings/metadata_large.jsonl"
+DOC_ID_REGISTER_PATH = "data/processed_register/document_ids.json"
+OUTPUT_FAISS_PATH = f"data/embeddings/council_index_{EMBEDDING_TYPE}.faiss"
+OUTPUT_METADATA_PATH = f"data/embeddings/metadata_{EMBEDDING_TYPE}.jsonl"
 BATCH_METADATA_PATH = OUTPUT_METADATA_PATH  # same file
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MANIFEST_PATH = "data/processed_register/document_manifest.jsonl"
@@ -63,63 +64,80 @@ def main():
     embedder = Embedder(api_key=OPENAI_API_KEY)
     doc_id_register = load_doc_id_register(DOC_ID_REGISTER_PATH)
     manifest = load_manifest(MANIFEST_PATH)
+    RESET_EMBEDDINGS = os.getenv("RESET_EMBEDDINGS", "false").lower() == "true"
     relevant_entries = [
         entry for entry in manifest
         if entry.get("chunk_path")
         and entry.get("doc_id")
-        and entry.get("status") == "embedded"
-        and not entry.get("embedding_large")
+        and entry.get("status") == "ready_for_embedding"
+        and (RESET_EMBEDDINGS or not entry.get(f"embedding_{EMBEDDING_TYPE}"))
     ]
+    print(f"Found {len(relevant_entries)} entries to embed")
 
     index = faiss.IndexFlatL2(EMBEDDING_DIM)
 
-    for entry in tqdm(relevant_entries):
+    for entry in tqdm(relevant_entries, desc="📌 Embedding entries"):
         chunk_path = entry["chunk_path"]
         doc_id = entry["doc_id"]
-        relative_path = entry["relative_path"]
 
         with open(chunk_path, "r") as f:
             chunks = json.load(f)
 
-        texts = [c["text"] for c in chunks if "text" in c]
-        chunk_ids = list(range(len(texts)))
+        valid_chunks = [c for c in chunks if all(k in c for k in ("text",))]
+        if len(valid_chunks) < len(chunks):
+            print(f"⚠️ Skipping {len(chunks) - len(valid_chunks)} incomplete chunks in {chunk_path}")
 
-        for i in range(0, min(len(texts), 2), BATCH_SIZE):  # Limit to 2 entries for test
-            batch = [t for t in texts[i:i + BATCH_SIZE] if t and t.strip()]
+        batch_texts = []
+        batch_metadata = []
+
+        for c in valid_chunks:
+            text = c["text"]
+            if text and text.strip():
+                batch_texts.append(text)
+                batch_metadata.append({
+                    "doc_id": doc_id,
+                    "text": text,
+                    "source_file": chunk_path,
+                    "committee": doc_id_register.get(doc_id, {}).get("committee", "N/A"),
+                    "meeting_date": doc_id_register.get(doc_id, {}).get("meeting_date", "N/A"),
+                })
+
+        for i in range(0, len(batch_texts), BATCH_SIZE):
+            batch = batch_texts[i:i + BATCH_SIZE]
             if not batch:
-                print(f"⚠️ Skipping empty or invalid batch in {relative_path}")
                 continue
-
             embeddings = embedder.embed_batch(batch)
             index.add(np.array(embeddings).astype("float32"))
 
             with open(BATCH_METADATA_PATH, "a", encoding="utf-8") as meta_out:
                 for j, embedding in enumerate(embeddings):
-                    entry = {
-                        "doc_id": doc_id,
-                        "chunk_id": i + j,
-                        "text": batch[j],
-                        "source_file": relative_path
-                    }
-                    meta_out.write(json.dumps(entry) + "\n")
+                    chunk_meta = batch_metadata[i + j].copy()
+                    chunk_meta["chunk_id"] = i + j  # doc-level chunk index
+                    meta_out.write(json.dumps(chunk_meta) + "\n")
 
     # Save FAISS index
     os.makedirs(os.path.dirname(OUTPUT_FAISS_PATH), exist_ok=True)
     faiss.write_index(index, OUTPUT_FAISS_PATH)
     print(f"✅ FAISS index saved to {OUTPUT_FAISS_PATH}")
 
-    # Update manifest with embedding_large field
+    # Update manifest with embedding type fields
     updated_manifest = []
     for entry in manifest:
         if entry.get("status") == "ready_for_embedding" and entry.get("doc_id") and entry.get("chunk_path"):
-            entry["embedding_large"] = True
+            if EMBEDDING_TYPE == "small":
+                entry["embedding_small"] = True
+            elif EMBEDDING_TYPE == "large":
+                entry["embedding_large"] = True
+            else:
+                entry["embedding_small"] = entry.get("embedding_small", False)
+                entry["embedding_large"] = entry.get("embedding_large", False)
         updated_manifest.append(entry)
 
     with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
         for entry in updated_manifest:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    print("📦 Manifest updated: embedding_large field written.")
+    print(f"📦 Manifest updated: embedding_{EMBEDDING_TYPE} field written.")
 
 if __name__ == "__main__":
     main()
