@@ -1,9 +1,0 @@
-timestamp,stage,total_files,total_size_mb,folder_count,duplicates_removed,unique_documents_retained
-2025-05-08T09:04:53.303753,initial,499.0,315.08,22.0,,
-2025-05-08T09:04:53.363124,after_consolidation,499.0,315.08,22.0,,
-2025-05-08T09:04:56.415656,after_enrichment,499.0,315.08,22.0,,
-2025-05-08T09:04:56.427080,after_tag_public_packs,499.0,315.08,22.0,,
-,after_deduplicate_hashes,,,,31.0,432.0
-2025-05-08T09:07:28.912935,after_deduplicate_hashes,468.0,283.66,22.0,,
-2025-05-08T09:07:28.931124,after_clean_filename_dupes,468.0,283.66,22.0,,
-2025-05-08T09:07:28.963898,after_assign_doc_ids,468.0,283.66,22.0,,
