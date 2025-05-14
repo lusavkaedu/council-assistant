@@ -38,10 +38,7 @@ def clean_text(text):
     # Remove headers/footers and unwanted boilerplate content
     if not text:
         return ""
-    
-    # Remove lines with common header/footer patterns (customize for your needs)
-    text = re.sub(r'(?i)(agenda|minutes|kent county council|date|subject|confidential|private)', '', text)
-    
+        
     # Replace unwanted newlines and excessive spaces
     text = re.sub(r"(?<!\\n)\\n(?!\\n)", " ", text)  # Single newlines → space
     text = re.sub(r"\s{2,}", " ", text)             # Multi spaces → single space

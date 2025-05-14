@@ -70,6 +70,7 @@ def main():
         if entry.get("chunk_path")
         and entry.get("doc_id")
         and entry.get("status") == "ready_for_embedding"
+        and not entry.get("is_text_duplicate_of")  # skip text duplicates
         and (RESET_EMBEDDINGS or not entry.get(f"embedding_{EMBEDDING_TYPE}"))
     ]
     print(f"Found {len(relevant_entries)} entries to embed")

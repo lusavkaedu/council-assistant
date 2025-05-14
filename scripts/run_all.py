@@ -28,6 +28,14 @@ def run_script(path):
         result = subprocess.run([sys.executable, path], check=True, env=env)
         log(f"✅ SUCCESS: {path}")
         print(f"✅ Finished {path}\n")
+        manifest_path = "data/processed_register/document_manifest.jsonl"
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as mf:
+                count = sum(1 for _ in mf)
+            summary_log_path = "logs/summary.log"
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(summary_log_path, "a", encoding="utf-8") as sf:
+                sf.write(f"[{timestamp}] {path} — manifest lines: {count}\n")
     except subprocess.CalledProcessError as e:
         log(f"❌ FAILURE: {path} exited with code {e.returncode}")
         print(f"❌ Script {path} failed with exit code {e.returncode}.")
@@ -41,12 +49,16 @@ if __name__ == "__main__":
     if args.mode == "re_set":
         scripts = [
             "scripts/2_assign_document_ids.py",
+            "scripts/2b_text_deduplication.py",
+            "scripts/2c_near_duplicate_detection.py",
             "scripts/3_chunking_master.py",
             "scripts/4_embedding_master.py"
         ]
     elif args.mode == "add_on":
         scripts = [
             "scripts/2_assign_document_ids.py",
+            "scripts/2b_text_deduplication.py",
+            "scripts/2c_near_duplicate_detection.py",
             "scripts/3_chunking_master.py",
             "scripts/4_embedding_master.py"
         ]

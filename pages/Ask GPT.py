@@ -1,6 +1,19 @@
 # app/streamlit_app.py
 
 import streamlit as st
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+# --- Simple access control ---
+def check_password():
+    st.sidebar.title("Login")
+    password = st.sidebar.text_input("Enter password", type="password")
+    if password != st.secrets.get("app_password", ""):
+        st.warning("Access denied.")
+        st.stop()
+
+check_password()
 import json
 import openai
 import faiss
@@ -13,6 +26,21 @@ DEBUG = False  # Set True to display raw prompt/context info
 # --- Load environment ---
 openai.api_key = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+if "session_id" not in st.session_state:
+    st.session_state["session_id"] = str(uuid.uuid4())
+
+def log_query(query_text, page="Ask GPT"):
+    log_path = Path("log/query_log.jsonl")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "session_id": st.session_state["session_id"],
+        "page": page,
+        "query": query_text
+    }
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
 
 # --- Load metadata and FAISS index ---
 @st.cache_resource
@@ -93,7 +121,7 @@ chat_model = st.sidebar.selectbox(
 max_display = st.sidebar.slider("Number of documents to show", min_value=1, max_value=10, value=5)
 
 # --- Question Input ---
-st.title("Council Assistant")
+st.title("🧠 CouncilBrain")
 st.markdown("""
     <style>
         .block-container {
@@ -110,15 +138,32 @@ question = st.text_input("Ask a question about council documents:")
 preview_chunks = st.button("View the Results", key="preview_chunks")
 
 system_prompt = """
-You are Council Assistant, an AI designed to summarize and answer questions using official local government documents.
-Your task is to provide a concise and factual answer based solely on the excerpts below.
+You are a factual Council Information Assistant. Respond ONLY using the provided document excerpts and their metadata (committee name and year).  
 
-Instructions:
-- Base your answer only on the information provided in the documents.
-- Do not make assumptions or use outside knowledge.
-- If the documents provide only partial or trend-based information, summarize that.
-- If the information is entirely insufficient or ambiguous, say: "The answer cannot be determined from the documents provided."
-- Your answer should be clear, direct, and structured in full sentences.
+Key Rules:  
+1. **Ground all answers**  
+   - Begin with: "According to [Committee]'s [Year] document:"  
+   - Never invent names, departments, or contacts  
+
+2. **Be transparent about gaps**  
+   - "The documents don't specify..."  
+   - "No information was found about..."  
+
+3. **Prioritize clarity**  
+   - Bullet points for multiple findings  
+   - Compare documents if dates/committees differ  
+
+4. **Stop hallucinations**  
+   - If unsure: "This isn't covered in the provided materials"  
+   - Never assume procedures or hierarchies  
+
+Example:  
+---  
+2021 Planning Committee documents show:  
+• [Key point 1]  
+• [Key point 2]  
+No later documents were provided - check with the Clerk for updates.  
+---  
 """
 
 def build_user_prompt(query, context_text):
@@ -133,6 +178,7 @@ Relevant Documents:
 Answer:"""
 
 if preview_chunks and question:
+    log_query(question, page="Ask GPT")
     with st.spinner("🔎 Searching..."):
         def get_embedding(text, model=embedding_model):
             response = client.embeddings.create(input=[text], model=model)
@@ -199,7 +245,22 @@ if preview_chunks and question:
 
         # Keep top-N most similar chunks
         selected_rows = selected_rows.sort_values(by="similarity", ascending=False).head(top_k)
-        chunks = selected_rows["text"].tolist()
+
+        # Sort by meeting_date before constructing context
+        selected_rows["meeting_date_str"] = selected_rows["meeting_date"].astype(str)
+        selected_rows["meeting_date_dt"] = pd.to_datetime(
+            selected_rows["meeting_date"],
+            format="%Y-%m-%d",
+            errors="coerce"
+        )
+        selected_rows = selected_rows.sort_values(by="meeting_date_dt", ascending=True)
+
+        # Build metadata-enhanced chunks
+        chunks = []
+        for _, row in selected_rows.iterrows():
+            header = f"[Document: {row.get('filename', '[unknown]')} | Date: {row.get('meeting_date_str', 'N/A')} | Committee: {row.get('committee', 'N/A')}]"
+            chunk_text = row.get("text", "")
+            chunks.append(f"{header}\n{chunk_text}")
 
         # Generate GPT answer immediately after chunks are computed
         context = "\n\n---\n\n".join(chunks)
@@ -284,7 +345,7 @@ if preview_chunks and question:
             st.subheader("Relevant Documents")
             st.markdown(table_html, unsafe_allow_html=True)
 
-            st.subheader("🧪 Preview Chunks to be Sent")
+            st.subheader("Relevant Documents (Preview)")
             from urllib.parse import quote
             for idx, chunk in enumerate(chunks):
                 doc_id = selected_rows.iloc[idx]["doc_id"]
