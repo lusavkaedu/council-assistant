@@ -1,0 +1,21 @@
+# Python cache and system files
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# VSCode and environment files
+.vscode/
+.env
+*.env
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore all data files except for README.md (whitelist pattern)
+data/*
+!data/README.md
+
+# Legacy storage folder
+storage/storage/*.json
+
+.streamlit/secrets.toml
