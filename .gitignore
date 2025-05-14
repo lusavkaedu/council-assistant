@@ -17,3 +17,5 @@ data/*
 
 # Legacy storage folder
 storage/storage/*.json
+
+.streamlit/secrets.toml
