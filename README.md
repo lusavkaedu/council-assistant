@@ -99,6 +99,20 @@ council-assistant/
 * Writes metadata and builds FAISS index
 * Tracks progress in `document_manifest.jsonl`
 
+### **4a. Generate_agenda_manifest.py**
+
+* Processes structured agenda item chunks from data/chunks/minutes/chunks.jsonl
+* Filters out low-value items (e.g. apologies, boilerplate)
+* Generates one manifest entry per council meeting. These entries are added to the master embedding manifest at:
+data/processed_register/document_manifest.jsonl
+* Each entry includes:
+	•	A unique doc_id like webscrape_2024-10-11_9045
+	•	A reference to the shared chunk file path
+	•	Embedding status flags (embedding_small, embedding_large)
+	•	source_type = "agenda"
+
+This allows agenda-based chunks to be embedded incrementally using the standard embedding pipeline without disrupting PDF workflows.
+
 ### **5. Glossary Annotation** (`5_annotate_glossary_links.py`)
 
 * Loads curated glossary terms from `data/glossary/glossary.json`
@@ -142,3 +156,71 @@ council-assistant/
 * Civil servants: found a pdf on the council website, with all the names of level 1-3 civil servants and who they report to. Asked ChatGPT to convert it into a a JSONL file. Imported that into people.jsonl.
 * Elections: scraped it in the council websites, from 2009 onwards. That added people as candidates/councillors. 
 * Committees: copies information on ALL available committees from the Kent County website. https://democracy.kent.gov.uk:9071/ieDocHome.aspx?XXR=0&Year=-1&Page=1&Categories=-14759&EB=F&.  Sent this to Chat GPT to generating starting committees.jsonl. 
+
+
+
+
+##  Agenda Embedding Pipeline (Structured from Web-Scraped Council Minutes)
+
+## ✅ Functional Pipeline Summary — Agenda Items (Web-Scraped)
+
+### **0. Scrape Meetings from Website** (`0_scrape_meetings.py`)
+
+* Scrapes meeting metadata and agenda items from `https://democracy.kent.gov.uk`
+* Supports scraping any `COMMITTEE_ID` and range of `MId` values
+* Detects meeting status (e.g. `cancelled`, `moved`, `withdrawn`)
+* Extracts structured fields: `committee_name`, `meeting_date`, `agenda_items`, and linked PDF URLs
+* Appends results to `data/meetings/meetings_metadata.jsonl`
+* Assigns each meeting a stable `meeting_id = "{COUNCIL_CODE}_{web_meeting_code}"`
+
+#### 🧼 `meeting_cleaning.py` — Agenda Data Cleaner + Committee Metadata Generator
+
+This utility script prepares council meeting data for use across the platform by cleaning agenda items, standardizing metadata, and producing a reusable committee reference file.
+
+- Normalizes committee names using alias rules and canonical names
+- Filters out junk/procedural agenda items (e.g. apologies, declarations)
+- Cleans agenda item titles (e.g. strips "PDF 123 KB")
+- Standardizes date formats for consistency
+- Drops meetings with no meaningful content
+
+🔁 Also generates `data/metadata/committees.jsonl`:
+- Canonical name + all observed aliases
+- Assigns a short, unique `committee_id` for use across the pipeline
+- Tagged with `council_code = "kent_cc"`
+
+Used in downstream workflows: agenda chunking, embedding, search, glossary tagging, and UI filters.
+
+---
+
+### **1. Generate Agenda Chunks** (`1_generate_agenda_chunks.py`)
+
+* Processes all entries in `meetings_metadata.jsonl`
+* Extracts and flattens agenda items into chunks
+* Computes a stable `chunk_id` based on meeting ID and item number
+* Adds a `text_hash` (SHA256) to each chunk for content tracking
+* Filters out empty or irrelevant agenda items (e.g. titles only, no text)
+* Saves full set of raw agenda chunks to `data/chunks/minutes/chunks.jsonl`
+
+---
+
+### **2. Update Manifest for Embedding** (`2_update_manifest.py`)
+
+* Compares newly generated chunks to existing `document_manifest.jsonl`
+* Flags new or changed chunks as `ready_for_embedding`
+* Assigns `doc_id = "webscrape_<date>_<meeting_code>"` to each chunk
+* Updates or inserts manifest entries for agenda-derived chunks
+* Ensures previously embedded chunks are not reprocessed if unchanged
+
+---
+
+### **3. Embed Agenda Chunks** (`4_embedding_master.py`)
+
+* Reads manifest and embeds only those agenda chunks marked `ready_for_embedding`
+* Skips chunks with `embedding_small = true` and identical `text_hash`
+* Sends batches to OpenAI embedding API (using `text-embedding-3-small` or other model)
+* Stores embedded vectors and metadata to:
+  - `data/embeddings/agenda/metadata.jsonl`
+  - `data/embeddings/agenda/index.faiss`
+* Updates manifest to flag each chunk as embedded
+
+
