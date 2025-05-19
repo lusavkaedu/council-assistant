@@ -51,6 +51,13 @@ council-assistant/
 │   ├── 3_chunking_master.py                   # Context-aware chunking pipeline
 │   └── 4_embedding_master.py                  # Embedding with OpenAI, both small & large models
 │
+├── council_scraper/                 # Dedicated module for scraping and parsing raw council data
+│   ├── main_scraper.py              # Entry point for scraping council websites
+│   └── utils/                       # Helper functions for HTTP, parsing, and scraping logic
+│       ├── __init__.py
+│       ├── http_utils.py
+│       ├── parsing_utils.py
+│       └── scraping_utils.py
 ├── README.md                      # This file
 ```
 
