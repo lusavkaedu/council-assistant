@@ -20,6 +20,24 @@ DOCS_OUT = Path("data/metadata/documents.jsonl")
 data = pd.read_json(INPUT_PATH, lines=True)
 initial_count = len(data)
 
+# === Load committee metadata ===
+committees_df = pd.read_json("data/metadata/committees.jsonl", lines=True)
+
+# Build mapping from committee_name, canonical_name, and aliases to committee_id
+committee_lookup = {}
+for _, row in committees_df.iterrows():
+    canonical = row.get("canonical_name") or row.get("committee_name")
+    if canonical:
+        committee_lookup[canonical] = row["committee_id"]
+    committee_lookup[row["committee_name"]] = row["committee_id"]
+    aliases = row.get("aliases", [])
+    if isinstance(aliases, list):
+        for alias in aliases:
+            committee_lookup[alias] = row["committee_id"]
+
+def resolve_committee_id(name):
+    return committee_lookup.get(name, None)
+
 # === 1. Clean Meeting Metadata ===
 data = data.drop_duplicates(subset="web_meeting_code", keep="last")
 after_dedup = len(data)
@@ -35,6 +53,23 @@ before_error_drop = len(data)
 data = data[data["error"].isna()]
 after_error_drop = len(data)
 print(f"[INFO] Dropped {before_error_drop - after_error_drop} meetings with non-null error field. Remaining: {after_error_drop}")
+
+# === Normalize committee_name before matching ===
+def extract_last_part(name):
+    if pd.isna(name):
+        return name
+    return name.rsplit(',', 1)[1].strip() if ',' in name else name
+
+data['committee_name'] = data['committee_name'].apply(extract_last_part)
+
+# === Assign committee_id to meetings ===
+data['committee_id'] = data['committee_name'].apply(resolve_committee_id)
+
+# Log unmatched committee_id entries after resolving committee_id for meetings
+unmatched = data[data["committee_id"].isnull()]
+print(f"⚠️  Unmatched committee_id: {len(unmatched)} meetings")
+if not unmatched.empty:
+    print(unmatched[["meeting_id", "committee_name"]].head(50))
 
 # === 2. Preprocess Agenda Items ===
 
@@ -53,6 +88,7 @@ def clean_agenda_items(items):
     return items
 
 data['agenda_items'] = data['agenda_items'].apply(clean_agenda_items)
+print(f"✅ Preprocessed agenda items: {len(data)} meetings")
 
 # === 3. Flatten Agenda Items ===
 
@@ -76,7 +112,11 @@ def flatten_agenda_items(df):
     ]].copy()
 
 agenda_items = flatten_agenda_items(data).reset_index(drop=True)
+print(f"✅ Flattened agenda items: {len(agenda_items)} rows")
 agenda_items['agenda_id'] = agenda_items.apply(lambda row: f"{row['meeting_id']}__{str(row.name).zfill(4)}", axis=1)
+
+# Assign committee_id to agenda items
+agenda_items['committee_id'] = agenda_items['committee_name'].apply(resolve_committee_id)
 agenda_items['item_title'] = agenda_items['item_title'].fillna('').apply(clean_item_title)
 
 def remove_pdf_lines(text):
@@ -120,6 +160,7 @@ def classify_category(title):
     return "discussion"
 
 agenda_items['category'] = agenda_items['item_title'].apply(classify_category)
+print("✅ Categorised agenda items")
 
 # === 5. Calculate PDF stats ===
 
@@ -139,6 +180,7 @@ duplicate_pdfs = total_pdfs - unique_pdfs
 print(f"[INFO] Total PDF URLs extracted: {total_pdfs}")
 print(f"[INFO] Unique PDF URLs: {unique_pdfs}")
 print(f"[INFO] Duplicate PDF URLs: {duplicate_pdfs}")
+print("✅ Calculated PDF stats")
 
 # Calculate assigned and unassigned header PDFs here for later use
 assigned_pdfs = set(all_pdfs)
@@ -153,6 +195,7 @@ for i, url in enumerate(unassigned_headers):
     fallback_agendas.append({
         "meeting_id": meeting.get("meeting_id", "unknown"),
         "committee_name": meeting.get("committee_name", "Unassigned"),
+        "committee_id": resolve_committee_id(meeting.get("committee_name", "")),
         "meeting_date": meeting.get("meeting_date", None),
         "web_meeting_code": meeting.get("web_meeting_code", None),
         "item_number": f"F{i+1}",
@@ -177,13 +220,19 @@ if fallback_agendas:
     fallback_df = fallback_df.dropna(how='all')          # Then remove all-NA rows
     if not fallback_df.empty:
         agenda_items = pd.concat([agenda_items, fallback_df], ignore_index=True)
+    print(f"✅ Added {len(fallback_agendas)} fallback agenda items for unassigned PDFs.")
 agenda_items = agenda_items.reset_index(drop=True)
 
-# === 7.Build a lookup of url → agenda_id ===
+# === 7.Build a lookup of url → agenda_id, preferring non-fallback agenda items ===
 url_to_agenda = {}
+fallback_ids = set(row.agenda_id for row in agenda_items.itertuples() if str(row.agenda_id).endswith("_F") or "__F" in str(row.agenda_id))
 for _, row in agenda_items.iterrows():
     for url in row.get("pdf_urls", []):
-        url_to_agenda[url.strip().lower()] = row["agenda_id"]
+        normalized_url = url.strip().lower()
+        current = url_to_agenda.get(normalized_url)
+        is_fallback = "__F" in str(row["agenda_id"])
+        if current is None or (current in fallback_ids and not is_fallback):
+            url_to_agenda[normalized_url] = row["agenda_id"]
 
 # === 8.Assign embed_status ===
 def should_embed(row):
@@ -207,6 +256,7 @@ def should_embed(row):
     return False
 
 agenda_items["embed_status"] = agenda_items.apply(should_embed, axis=1)
+print("✅ Assigned embed status to agenda items")
 
 
 # === 9. Build Document Metadata ===
@@ -218,19 +268,28 @@ for _, row in agenda_items.iterrows():
         continue
 
     for url in urls:
-        url = url.strip().split("#")[0]
+        url_key = url.strip().lower()
+        # Only assign agenda_id if this url is not already mapped to a non-fallback agenda
+        agenda_id_for_url = url_to_agenda.get(url_key)
+        # Check if url is mapped to a non-fallback agenda
+        is_fallback = agenda_id_for_url is not None and ("__F" in str(agenda_id_for_url))
+        # If url is mapped to a non-fallback agenda, skip fallback assignment
+        if is_fallback and ("__F" in str(row["agenda_id"])):
+            # skip assigning fallback agenda_id if already mapped to non-fallback
+            continue
         doc_rows.append({
-            "url": url,
+            "url": url.strip().split("#")[0],
             "meeting_id": row["meeting_id"],
-            "agenda_id": url_to_agenda.get(url.strip().lower()),
+            "agenda_id": agenda_id_for_url,
             "committee_name": row["committee_name"],
-            "committee_id": "",
+            "committee_id": row.get("committee_id", ""),
             "meeting_date": int(row["meeting_date"].timestamp() * 1000) if pd.notnull(row["meeting_date"]) else None,
             "item_title": row["item_title"],
             "doc_id": "",  # assigned later using assign_doc_ids()
             "doc_category": get_document_category(url.split("/")[-1]),
             "status": "pending"
         })
+print(f"✅ Created document metadata: {len(doc_rows)} rows before deduplication")
 
 # === 10. Add unassigned header PDFs to document metadata ===
 for url in unassigned_headers:
@@ -242,7 +301,7 @@ for url in unassigned_headers:
         "meeting_id": meeting["meeting_id"] if meeting else "unknown",
         "agenda_id": url_to_agenda.get(url.strip().lower()),
         "committee_name": meeting["committee_name"] if meeting else "Unassigned",
-        "committee_id": "",
+        "committee_id": resolve_committee_id(meeting["committee_name"]) if meeting else None,
         "meeting_date": int(pd.to_datetime(meeting["meeting_date"]).timestamp() * 1000) if meeting and pd.notnull(meeting["meeting_date"]) else None,
         "item_title": "Header-only document",
         "doc_id": "",  # assigned later
@@ -261,7 +320,7 @@ print(f"✅ Saved flattened agendas: {AGENDAS_OUT}")
 documents_df = pd.DataFrame(doc_rows)
 documents_df = documents_df.drop_duplicates(subset="url", keep="first")
 documents_df.to_json(DOCS_OUT, orient="records", lines=True)
-print(f"✅ Saved documents metadata: {DOCS_OUT}")
+print(f"✅ Wrote {documents_df.shape[0]} unique documents to file")
 
 # === 12. Assign doc_ids ===
 
