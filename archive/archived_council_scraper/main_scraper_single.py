@@ -4,12 +4,18 @@ import os
 import argparse
 from datetime import datetime
 
-from utils.scraping_utils import run_scrape_batch, BASE_URL
+# Import all the utility functions
+from utils.scraper_utils_all import (
+    run_scrape_batch,
+    BASE_URL,
+)
 
-OUTPUT_FILE = "data/meetings/kcc_meetings.jsonl"
+#from utils.scraping_utils import run_scrape_batch, BASE_URL
+
+OUTPUT_FILE = "../data/meetings/meetings_metadata_test_1.jsonl"
 COMMITTEE_ID = "144"
-MIDS_START = 9800
-MIDS_END = 9900
+MIDS_START = 6370
+MIDS_END = 9800
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Scrape Kent Council meeting data with improved anti-blocking measures")
