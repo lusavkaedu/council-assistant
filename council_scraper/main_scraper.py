@@ -8,8 +8,8 @@ from utils.scraping_utils import run_scrape_batch, BASE_URL
 
 OUTPUT_FILE = "data/meetings/meetings_metadata_new.jsonl"
 COMMITTEE_ID = "144"
-MIDS_START = 7376
-MIDS_END = 9800
+MIDS_START = 6000
+MIDS_END = 6378
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Scrape Kent Council meeting data with improved anti-blocking measures")
