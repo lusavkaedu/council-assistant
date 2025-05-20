@@ -63,113 +63,17 @@ council-assistant/
 
 ---
 
-## ✅ Functional Pipeline Summary
-
-### **1. Scraping & Initial Metadata** (`1_scraping_council_docs_DRAFT.py` or notebook)
-
-* Extracts PDF documents from public council pages
-* Allocates them into the correct committee/date/originals folder
-* Writes basic `metadata.json` per meeting
-
-### **2. Document ID Assignment** (`2_assign_document_ids.py`)
-
-* Assigns unique `doc_id` to each file based on binary content hash
-* Detects and removes true duplicates (same binary file) within the same folder
-* Updates `document_ids.json` and `document_manifest.jsonl`
-
-### **2b. Text-Based Deduplication** (`2b_text_deduplication.py`)
-
-* Extracts and normalizes text from each PDF
-* Computes a SHA256 hash of cleaned text content
-* Flags files as `is_text_duplicate_of` in the manifest if their text matches another document
-* Prevents re-embedding identical content with different file binaries
-* Uses strict equality of SHA256 hashes of normalized text (i.e. 100% content match) — no fuzzy thresholding applied
-
-### **2c. Near-Duplicate Detection** (`2c_near_duplicate_detection.py`)
-
-* Uses MinHash + Locality Sensitive Hashing (LSH) to detect documents with high text similarity
-* Applies 5-word shingles and 128 hash permutations
-* Flags documents as `is_near_duplicate_of` if their Jaccard similarity ≥ 0.95
-* Helps prevent redundant embeddings of semantically similar but not identical files
-
-### **3. Chunking** (`3_chunking_master.py`)
-
-* Processes PDFs into semantic chunks (overlapping if needed)
-* Stores `.json` chunk files locally
-* Updates manifest with status + chunk path
-* Next steps: consider spaCy or NLTK for smarter boundaries, but the regex is clean and efficient for first pass.
-
-### **4. Embeddings** (`4_embedding_master.py`)
-
-* Embeds chunked files using OpenAI models
-* Supports both `text-embedding-3-small` and `text-embedding-3-large`
-* Writes metadata and builds FAISS index
-* Tracks progress in `document_manifest.jsonl`
-
-### **4a. Generate_agenda_manifest.py**
-
-* Processes structured agenda item chunks from data/chunks/minutes/chunks.jsonl
-* Filters out low-value items (e.g. apologies, boilerplate)
-* Generates one manifest entry per council meeting. These entries are added to the master embedding manifest at:
-data/processed_register/document_manifest.jsonl
-* Each entry includes:
-	•	A unique doc_id like webscrape_2024-10-11_9045
-	•	A reference to the shared chunk file path
-	•	Embedding status flags (embedding_small, embedding_large)
-	•	source_type = "agenda"
-
-This allows agenda-based chunks to be embedded incrementally using the standard embedding pipeline without disrupting PDF workflows.
-
-### **5. Glossary Annotation** (`5_annotate_glossary_links.py`)
-
-* Loads curated glossary terms from `data/glossary/glossary.json`
-* Scans all chunked JSON files for mentions of glossary terms or aliases
-* Annotates each chunk with a `glossary_terms` field (e.g. `["MRP", "ASC"]`)
-* Aggregates glossary tags per document and updates `raw_scraped_metadata.jsonl`
-* Enables smarter retrieval, chatbot explanations, and UI tooltips based on term recognition
-* Includes a `DRY_RUN = True` mode for safe preview before writing changes
-* Next steps needed: improving matching logic (e.g. stemming, plural-insensitive, fuzzy matches)
-
----
-
-## 🧠 RAG-Ready Metadata Design
-
-* Each document has a `doc_id`, relative path, and hash
-* Each chunk has its `chunk_id`, `doc_id`, text, and source
-* Manifest file includes status flags:
-
-  * `ready_for_chunking`
-  * `chunked`
-  * `ready_for_embedding`
-  * `embedded`
-  * `embedding_large` (optional field)
-  * `duplicate_removed` (optional)
-
----
-
-## 🚧 Next Steps
-
-* [ ] Build notebook-based chatbot using FAISS + OpenAI completion
-* [ ] Test retrieval quality using both embedding models
-* [ ] Add user history, session memory, or user-level auth (future app layer)
-
-
-## How the initial data was generated - 
-
-#### Documents
-* Council documents: scraped using a notebook code (no script yet, only draft).
-
-#### Other: 
-* Civil servants: found a pdf on the council website, with all the names of level 1-3 civil servants and who they report to. Asked ChatGPT to convert it into a a JSONL file. Imported that into people.jsonl.
-* Elections: scraped it in the council websites, from 2009 onwards. That added people as candidates/councillors. 
-* Committees: copies information on ALL available committees from the Kent County website. https://democracy.kent.gov.uk:9071/ieDocHome.aspx?XXR=0&Year=-1&Page=1&Categories=-14759&EB=F&.  Sent this to Chat GPT to generating starting committees.jsonl. 
-
-
-
-
-##  Agenda Embedding Pipeline (Structured from Web-Scraped Council Minutes)
-
 ## ✅ Functional Pipeline Summary — Agenda Items (Web-Scraped)
+
+
+### 🧹 Prep step - set up committees - Committee List Cleaner (Manual Setup for New Councils)
+`notebooks/0A_Scraping_KCC_Committees.ipynb`
+
+This notebook extracts and cleans committee names from a saved HTML file of the council’s meeting index page.  
+It tags inactive bodies, removes irrelevant entries, and builds a canonical alias map.  
+Run this manually when onboarding a **new council** to ensure accurate committee matching.  
+Outputs include `committees.jsonl` and `committee_alias_map.csv` for use in downstream processing.
+
 
 ### **0. Scrape Meetings from Website** (`0_scrape_meetings.py`)
 
@@ -177,7 +81,7 @@ This allows agenda-based chunks to be embedded incrementally using the standard 
 * Supports scraping any `COMMITTEE_ID` and range of `MId` values
 * Detects meeting status (e.g. `cancelled`, `moved`, `withdrawn`)
 * Extracts structured fields: `committee_name`, `meeting_date`, `agenda_items`, and linked PDF URLs
-* Appends results to `data/meetings/meetings_metadata.jsonl`
+* Appends results to `data/meetings/kcc_meetings.jsonl`
 * Assigns each meeting a stable `meeting_id = "{COUNCIL_CODE}_{web_meeting_code}"`
 
 #### 🧼 `meeting_cleaning.py` — Agenda Data Cleaner + Committee Metadata Generator
@@ -199,9 +103,96 @@ Used in downstream workflows: agenda chunking, embedding, search, glossary taggi
 
 ---
 
+The two scripts above have been integrated now into this:
+
+## 🕸️ Scraper Module Overview (`council_scraper/`)
+
+This module contains all scripts and utilities used to scrape public meeting data from local government council websites.
+
+### 📁 Folder Structure
+council_scraper/
+├── main_scraper.py           # CLI entry point to run the scraper
+└── utils/
+  ├── init.py           # Exports shared utility functions
+  ├── http_utils.py         # HTTP request wrappers with retry logic and headers
+  ├── parsing_utils.py      # Text/date cleaning, regex helpers, structural parsers
+  └── scraping_utils.py     # Core scraping logic: page navigation, metadata extraction, file writing
+
+### 🧠 Design Principles
+- Modular: each helper script is self-contained and reusable
+- Resilient: request functions include error handling and backoff logic
+- Clean output: all scraped data is saved as `.jsonl` and includes status metadata
+- Scalable: scraper can be adapted to support multiple councils or extended to fetch PDFs
+
+### ✅ Usage
+Run the scraper from the project root:
+```bash
+python3 council_scraper/main_scraper.py --start 6000 --end 9800 --committee 144 --output data/meetings/kcc_meetings.jsonl
+
+data/meetings/kcc_meetings.jsonl = the main source of information later used for agenda.jsonl, meetings.jsonl, etc. 
+
+
+
+## 📊 Notebook: 0D_Scraping_EDA_Agenda_Meetings_Metadata.ipynb
+
+This notebook performs **exploratory data analysis (EDA)** and **initial cleaning** on the raw scraped metadata from council meeting agenda pages. It serves as the first diagnostic step in the pipeline, helping to validate the structure and quality of the scraped data before downstream processing.
+
+#### Key Tasks:
+- Loads and previews raw `kcc_meetings.jsonl` content
+- Identifies and removes duplicate or malformed entries
+- Explores distribution of scraped agenda items by:
+  - Committee
+  - Meeting date
+  - Agenda category
+- Highlights issues in `item_text`, such as empty rows, overlong junk content, or missing PDFs
+- Flags potential inconsistencies for manual or rule-based cleaning
+- Prepares cleaned metadata for downstream enrichment (e.g., categorisation, filtering, embedding)
+
+Use this notebook to iteratively improve scraping logic and ensure the dataset remains accurate and complete across councils and time periods.
+
+
+### 🧾 Script: `1_generate_committee_summary.py`
+
+This script generates a clean, merged summary of all committees based on scraped meeting metadata. It performs the following key tasks:
+
+- Loads and deduplicates raw meeting records from `kcc_meetings.jsonl`
+- Cleans and normalises committee names (e.g. removes suffixes like ", Budget Meeting")
+- Aggregates meeting stats (first/last date, count) for each unique committee
+- Merges with the legacy committee metadata (`starter_list_committees.jsonl`)
+- Auto-classifies committees as `inactive` if no meetings in 3+ years
+- Filters out inactive committees with fewer than 2 meetings
+- Outputs the final summary to `committees.jsonl`
+
+**When to run:**  
+Run this script after scraping new meeting data but **before indexing documents or building committee dashboards**. It ensures your committee list stays up-to-date and consistent across the project.
+
+
+### 🧹 `0_scraped_meetings_cleaner.py`
+
+This script processes raw meeting metadata scraped from the council website. It splits the raw scraped data into distinct parts by sperforms the following:
+
+- **Cleans and deduplicates** meeting entries.
+- **Normalizes committee names** and assigns `committee_id` by matching against `committees.jsonl`.
+- **Flattens agenda items** and sub-items into a single agenda row per PDF reference.
+- **Identifies and logs unassigned PDFs**, then creates fallback agenda items to preserve them.
+- **Links documents to agenda items**, assigns `doc_id`s, and deduplicates all PDF references.
+- Outputs three final datasets:
+  - `meetings.jsonl` — cleaned meetings with assigned committee IDs
+  - `agendas.jsonl` — flattened and enriched agenda items
+  - `documents.jsonl` — deduplicated PDF metadata with `doc_id`, `agenda_id`, and `meeting_id`
+
+Use this script after scraping, and **after cleaning committees names to canonical ones**, and before embedding or summarisation.
+
+
+
+
+
+
+
+
 ### **1. Generate Agenda Chunks** (`1_generate_agenda_chunks.py`)
 
-* Processes all entries in `meetings_metadata.jsonl`
+* Processes all entries in `kcc_meetings.jsonl`
 * Extracts and flattens agenda items into chunks
 * Computes a stable `chunk_id` based on meeting ID and item number
 * Adds a `text_hash` (SHA256) to each chunk for content tracking
@@ -230,4 +221,20 @@ Used in downstream workflows: agenda chunking, embedding, search, glossary taggi
   - `data/embeddings/agenda/index.faiss`
 * Updates manifest to flag each chunk as embedded
 
+
+## DOCUMENTS PDF processing
+
+1_scrape_docs.py     → just saves PDFs + metadata
+
+2_classify_docs.py   → tags type: "minutes", "agenda", "report", etc
+
+3_process_minutes.py → special handler for minutes
+3_process_decision.py → special handler for minutes
+3_process_prod.py → special handler for minutes
+3_process_eqia.py → special handler for minutes
+3_process_planning_app.py → special handler for minutes
+
+
+
+4_embed_chunks.py    → generic embedding
 
