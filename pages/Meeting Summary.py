@@ -30,7 +30,7 @@ st.title("Council Meeting Summary")
 # --- Load Metadata ---
 @st.cache_data
 def load_metadata():
-    path = Path("data/meetings/meetings_metadata.jsonl")
+    path = Path("data/meetings/kcc_meetings.jsonl")
     with jsonlines.open(path, "r") as reader:
         records = list(reader)
     df = pd.DataFrame(records)
@@ -75,7 +75,7 @@ if st.button("View Summary"):
 
     st.markdown("#### Full Agenda for This Meeting")
 
-    MEETINGS_PATH = Path("data/meetings/meetings_metadata.jsonl")
+    MEETINGS_PATH = Path("data/meetings/kcc_meetings.jsonl")
     agenda_items = []
     if MEETINGS_PATH.exists():
         with open(MEETINGS_PATH, "r", encoding="utf-8") as f:

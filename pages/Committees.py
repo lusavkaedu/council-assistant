@@ -10,7 +10,7 @@ from scripts.utils.meeting_cleaning import clean_data, normalize_committee  # Ad
 st.title("Council Committees")
 
 # Load cleaned meetings data
-MEETINGS_PATH = Path("data/meetings/meetings_metadata.jsonl")
+MEETINGS_PATH = Path("data/meetings/kcc_meetings.jsonl")
 if MEETINGS_PATH.exists():
     cleaned_data = clean_data(MEETINGS_PATH)
 else:
