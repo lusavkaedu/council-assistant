@@ -10,6 +10,11 @@ import numpy as np
 from tqdm import tqdm
 from openai import OpenAI
 from typing import List
+import toml
+
+# Load from Streamlit-style secrets
+secrets = toml.load(".streamlit/secrets.toml")
+OPENAI_API_KEY = secrets.get("OPENAI_API_KEY")
 
 # === CONFIGURATION ===
 EMBEDDING_TYPE = os.getenv("EMBEDDING_TYPE", "small")  # options: "small", "large"
@@ -22,7 +27,7 @@ DOC_ID_REGISTER_PATH = "data/processed_register/document_ids.json"
 OUTPUT_FAISS_PATH = f"data/embeddings/council_index_{EMBEDDING_TYPE}.faiss"
 OUTPUT_METADATA_PATH = f"data/embeddings/metadata_{EMBEDDING_TYPE}.jsonl"
 BATCH_METADATA_PATH = OUTPUT_METADATA_PATH  # same file
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+#OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MANIFEST_PATH = "data/processed_register/document_manifest.jsonl"
 
 def load_manifest(path: str):
@@ -35,7 +40,9 @@ class Embedder:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    def embed_batch(self, texts: List[str], attempt=1) -> List[List[float]]:
+        if attempt > 5:
+            raise RuntimeError("Too many retry attempts for embedding.")
         try:
             response = self.client.embeddings.create(
                 model=self.model,
@@ -43,9 +50,9 @@ class Embedder:
             )
             return [e.embedding for e in response.data]
         except Exception as e:
-            print("Embedding error:", e)
+            print(f"Embedding error (attempt {attempt}): {e}")
             time.sleep(5)
-            return self.embed_batch(texts)
+            return self.embed_batch(texts, attempt=attempt + 1)
 
 # === LOAD DOC ID REGISTER ===
 def load_doc_id_register(path: str):
@@ -57,6 +64,18 @@ def load_doc_id_register(path: str):
 # === FIND ALL CHUNK FILES ===
 def find_all_chunk_files(base_dir: str, suffix: str):
     return glob.glob(os.path.join(base_dir, "**", f"*{suffix}"), recursive=True)
+
+# === FILTERING FUNCTION ===
+def is_meaningful(chunk):
+    text = chunk.get("text", "").lower()
+    title = chunk.get("item_title", "").lower()
+    if len(text.split()) < 40:
+        if any(k in text or k in title for k in [
+            "apologies", "substitutes", "panel business", "motion to exclude",
+            "minutes of the meeting", "future work programme", "webcast", "any other business"
+        ]):
+            return False
+    return True
 
 # === MAIN ===
 def main():
@@ -80,13 +99,20 @@ def main():
     for entry in tqdm(relevant_entries, desc="📌 Embedding entries"):
         chunk_path = entry["chunk_path"]
         doc_id = entry["doc_id"]
+        meeting_code = doc_id.split("_")[-1]
 
-        with open(chunk_path, "r") as f:
-            chunks = json.load(f)
+        with open(chunk_path, "r", encoding="utf-8") as f:
+            chunks = [
+                json.loads(line) for line in f if line.strip()
+                and json.loads(line).get("meeting_code") == meeting_code
+            ]
 
-        valid_chunks = [c for c in chunks if all(k in c for k in ("text",))]
+        valid_chunks = [
+            c for c in chunks
+            if all(k in c for k in ("text",)) and is_meaningful(c)
+        ]
         if len(valid_chunks) < len(chunks):
-            print(f"⚠️ Skipping {len(chunks) - len(valid_chunks)} incomplete chunks in {chunk_path}")
+            print(f"⚠️ Skipping {len(chunks) - len(valid_chunks)} incomplete or unmeaningful chunks in {chunk_path}")
 
         batch_texts = []
         batch_metadata = []
@@ -107,7 +133,15 @@ def main():
             batch = batch_texts[i:i + BATCH_SIZE]
             if not batch:
                 continue
-            embeddings = embedder.embed_batch(batch)
+
+            print(f"🟡 Sending batch of {len(batch)} chunks from doc_id: {doc_id}")
+            try:
+                embeddings = embedder.embed_batch(batch)
+            except Exception as e:
+                print(f"❌ Failed to embed batch from {doc_id}: {e}")
+                continue
+            print(f"🟢 Successfully embedded batch of {len(embeddings)} items")
+
             index.add(np.array(embeddings).astype("float32"))
 
             with open(BATCH_METADATA_PATH, "a", encoding="utf-8") as meta_out:
