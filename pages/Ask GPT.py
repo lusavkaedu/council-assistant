@@ -117,57 +117,51 @@ chat_model = st.sidebar.selectbox(
     index=0
 )
 
+temperature = st.sidebar.slider("GPT Temperature", min_value=0.0, max_value=1.0, value=0.3, step=0.1)
+
 # Add slider for number of distinct documents to show
 max_display = st.sidebar.slider("Number of documents to show", min_value=1, max_value=10, value=5)
 
 # --- Question Input ---
 st.title("🧠 CouncilBrain")
-st.markdown("""
-    <style>
-        .block-container {
-            padding-top: 3rem !important;
-            padding-bottom: 3rem !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
-question = st.text_input("Ask a question about council documents:")
 
-# Add a new "View the Results" button directly below the text input box for the question
-preview_chunks = st.button("View the Results", key="preview_chunks")
+tab_titles = ["Ask a Question", "AI Summary"]
+tabs = st.tabs(tab_titles)
 
-system_prompt = """
-You are a factual Council Information Assistant. Respond ONLY using the provided document excerpts and their metadata (committee name and year).  
+with tabs[0]:
+    st.markdown("""
+        <style>
+            .block-container {
+                padding-top: 3rem !important;
+                padding-bottom: 3rem !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    question = st.text_input("Ask a question about council documents:")
 
-Key Rules:  
-1. **Ground all answers**  
-   - Begin with: "According to [Committee]'s [Year] document:"  
-   - Never invent names, departments, or contacts  
+    # Add a new "View the Results" button directly below the text input box for the question
+    preview_chunks = st.button("View the Results", key="preview_chunks")
 
-2. **Be transparent about gaps**  
-   - "The documents don't specify..."  
-   - "No information was found about..."  
+    system_prompt = '''
+You are a Council Intelligence Analyst. Your job is to explain the Council’s latest thinking on a topic using real documents.
 
-3. **Prioritize clarity**  
-   - Bullet points for multiple findings  
-   - Compare documents if dates/committees differ  
+Instructions:
+1. Compare multiple documents (agenda items and summaries) from different committees and years.
+2. Identify what has changed over time.
+3. Cite each source explicitly.
+4. If sources conflict, highlight that.
 
-4. **Stop hallucinations**  
-   - If unsure: "This isn't covered in the provided materials"  
-   - Never assume procedures or hierarchies  
+If the same idea appears many times, say: “This is consistent across several documents (e.g., [2024 Cabinet], [2023 Council])…”
 
-Example:  
----  
-2021 Planning Committee documents show:  
-• [Key point 1]  
-• [Key point 2]  
-No later documents were provided - check with the Clerk for updates.  
----  
-"""
+If only one strong source is found, say: “Only one detailed agenda item was found, from [Committee, Year]…”
 
-def build_user_prompt(query, context_text):
-    return f"""Answer the following question using only the information in the provided context.
+Do not speculate. Be clear about uncertainty or missing details.
+'''
+
+    def build_user_prompt(query, context_text):
+        return f"""Answer the following question using only the information in the provided context.
 
 Question:
 {query}
@@ -177,190 +171,101 @@ Relevant Documents:
 
 Answer:"""
 
-if preview_chunks and question:
-    log_query(question, page="Ask GPT")
-    with st.spinner("🔎 Searching..."):
-        def get_embedding(text, model=embedding_model):
-            response = client.embeddings.create(input=[text], model=model)
-            return response.data[0].embedding
+    if preview_chunks and question:
+        log_query(question, page="Ask GPT")
+        with st.spinner("🔎 Searching..."):
+            import jsonlines
 
-        query_vector = np.array(get_embedding(question)).astype("float32").reshape(1, -1)
-        top_k_chunks = max_display * 3
-        distances, indices = index.search(query_vector, top_k_chunks)
+            # Embed the query
+            def get_embedding(text, model=embedding_model):
+                response = client.embeddings.create(input=[text], model=model)
+                return response.data[0].embedding
 
-        selected_rows = metadata_df.iloc[indices[0]].copy()
-        selected_rows["similarity"] = 1 - distances[0]  # cosine similarity = 1 - distance
+            query_vector = np.array(get_embedding(question)).astype("float32").reshape(1, -1)
 
-        # Merge with metadata_df to enrich fields like committee and meeting_date
-        merge_columns = ["doc_id", "committee", "meeting_date", "filename"]
-        available_columns = [col for col in merge_columns if col in metadata_df.columns]
+            # Load agenda and pdf summary metadata
+            with jsonlines.open("data/embeddings/agendas/metadata_agenda.jsonl", "r") as reader:
+                agenda_meta = pd.DataFrame(reader)
+            with jsonlines.open("data/embeddings/pdf_summaries/metadata_pdf_summaries.jsonl", "r") as reader:
+                pdf_meta = pd.DataFrame(reader)
 
-        selected_rows = selected_rows.merge(
-            metadata_df[available_columns],
-            on="doc_id",
-            how="left",
-            suffixes=("", "_y")
-        )
-        # Resolve potential duplicate columns
-        for col in ["committee", "meeting_date", "filename"]:
-            if f"{col}_y" in selected_rows.columns:
-                selected_rows[col] = selected_rows[f"{col}_y"]
-                selected_rows.drop(columns=[f"{col}_y"], inplace=True)
+            # Load FAISS indexes
+            agenda_index = faiss.read_index("data/embeddings/agendas/agenda_index.faiss")
+            pdf_index = faiss.read_index("data/embeddings/pdf_summaries/pdf_summary_index.faiss")
 
-        # Load context with improved logging for debugging
-        chunks = []
-        for _, row in selected_rows.iterrows():
-            source_file = row.get("source_file")
-            chunk_id = row.get("chunk_id")
+            # Search both
+            agenda_D, agenda_I = agenda_index.search(query_vector, 100)
+            pdf_D, pdf_I = pdf_index.search(query_vector, 100)
 
-            if not source_file or not os.path.isfile(source_file):
-                st.warning(f"⚠️ Source file missing or invalid: {source_file}")
-                continue
+            agenda_hits = agenda_meta.iloc[agenda_I[0]].copy()
+            agenda_hits["score"] = agenda_D[0]
+            agenda_hits["source_type"] = "agenda"
 
-            try:
-                with open(source_file, "r", encoding="utf-8") as f:
-                    chunk_data = json.load(f)
-                    start = max(0, chunk_id - context_window)
-                    end = min(len(chunk_data), chunk_id + context_window + 1)
-                    for i in range(start, end):
-                        chunks.append(chunk_data[i]["text"])
-            except Exception as e:
-                st.warning(f"⚠️ Error loading chunk from {source_file}: {e}")
+            # Merge agenda metadata for committee_name, meeting_date, item_title
+            with jsonlines.open("data/metadata/agendas.jsonl", "r") as reader:
+                agenda_full_meta = pd.DataFrame(reader)
+            agenda_full_meta["meeting_date"] = pd.to_numeric(agenda_full_meta["meeting_date"], errors="coerce")
+            agenda_hits["agenda_id"] = agenda_hits["chunk_id"]
+            agenda_hits = agenda_hits.merge(
+                agenda_full_meta[["agenda_id", "committee_name", "meeting_date", "item_title"]],
+                how="left",
+                on="agenda_id"
+            )
+            # After merging, assign and clean up the correct date column
+            agenda_hits["meeting_date"] = agenda_hits["meeting_date_y"]
+            agenda_hits = agenda_hits.drop(columns=[col for col in ["meeting_date_x", "meeting_date_y"] if col in agenda_hits.columns])
 
-        # Score chunks by similarity and deduplicate
-        selected_rows["text"] = ""
-        for i, row in selected_rows.iterrows():
-            source_file = row.get("source_file")
-            chunk_id = row.get("chunk_id")
-            try:
-                with open(source_file, "r", encoding="utf-8") as f:
-                    chunk_data = json.load(f)
-                    row_text = chunk_data[chunk_id]["text"]
-                    selected_rows.at[i, "text"] = row_text
-            except:
-                continue
+            pdf_hits = pdf_meta.iloc[pdf_I[0]].copy()
+            pdf_hits["score"] = pdf_D[0]
+            pdf_hits["source_type"] = "pdf"
 
-        # Remove duplicates by text
-        selected_rows = selected_rows.drop_duplicates(subset="text")
+            # Deduplicate and trim agenda and pdf results separately
+            agenda_hits = agenda_hits.sort_values("score").drop_duplicates(subset=["chunk_id"]).head(5)
+            pdf_hits = pdf_hits.sort_values("score").drop_duplicates(subset=["doc_id"]).head(5)
 
-        # Keep top-N most similar chunks
-        selected_rows = selected_rows.sort_values(by="similarity", ascending=False).head(top_k)
+            # Merge document metadata only into pdf results
+            with jsonlines.open("data/metadata/documents.jsonl", "r") as reader:
+                doc_meta = pd.DataFrame(reader)
+            pdf_hits = pdf_hits.merge(doc_meta, on="doc_id", how="left")
 
-        # Sort by meeting_date before constructing context
-        selected_rows["meeting_date_str"] = selected_rows["meeting_date"].astype(str)
-        selected_rows["meeting_date_dt"] = pd.to_datetime(
-            selected_rows["meeting_date"],
-            format="%Y-%m-%d",
-            errors="coerce"
-        )
-        selected_rows = selected_rows.sort_values(by="meeting_date_dt", ascending=True)
+            # Combine both types again
+            combined = pd.concat([agenda_hits, pdf_hits], ignore_index=True)
 
-        # Build metadata-enhanced chunks
-        chunks = []
-        for _, row in selected_rows.iterrows():
-            header = f"[Document: {row.get('filename', '[unknown]')} | Date: {row.get('meeting_date_str', 'N/A')} | Committee: {row.get('committee', 'N/A')}]"
-            chunk_text = row.get("text", "")
-            chunks.append(f"{header}\n{chunk_text}")
+            # Build GPT context with inline citations (replacing footnote-style citations)
+            context = ""
+            # footnotes = []
+            # footnote_counter = 1
+            # footnote_refs = []
+            for _, row in combined.iterrows():
+                label = "Agenda Item" if row["source_type"] == "agenda" else "PDF Summary"
+                title = row.get("item_title") if row["source_type"] == "agenda" else row.get("display_title", "Untitled")
+                raw_date = row.get("meeting_date", None)
+                meeting_str = "N/A"
+                try:
+                    if isinstance(raw_date, (float, int)) and not pd.isnull(raw_date):
+                        meeting_dt = pd.to_datetime(int(raw_date), unit="ms", errors="coerce")
+                        meeting_str = meeting_dt.strftime("%-d %b %Y") if pd.notnull(meeting_dt) else "N/A"
+                except Exception:
+                    meeting_str = str(raw_date)
+                source_note = f"{row.get('committee_name', 'Unknown Committee')}, {meeting_str}"
+                heading = f"{label}: {title} ({source_note})\n{row.get('text', '')}\n"
+                context += heading + "\n---\n\n"
+                # footnote_counter += 1
+            # context += "\n".join(footnotes)
 
-        # Generate GPT answer immediately after chunks are computed
-        context = "\n\n---\n\n".join(chunks)
-        prompt = build_user_prompt(question, context)
-        response = client.chat.completions.create(
-            model=chat_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        st.subheader("GPT Answer")
-        st.markdown(response.choices[0].message.content)
+            prompt = build_user_prompt(question, context)
+            response = client.chat.completions.create(
+                model=chat_model,
+                temperature=temperature,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            st.subheader("GPT Answer")
+            st.markdown(response.choices[0].message.content)
+            with st.expander("📤 What was sent to ChatGPT"):
+                st.code(prompt, language="markdown")
 
-        if preview_chunks:
-            # Moved Relevant Documents block above Preview Chunks block
-            # Relevant Documents block
-            # Ensure required columns are present to avoid KeyError during groupby
-            for col in ['filename', 'committee', 'meeting_date']:
-                if col not in selected_rows.columns:
-                    selected_rows[col] = "[unknown]"
-
-            # Optional field: document_type
-            agg_dict = {
-                "meeting_date": "first",
-                "committee": "first",
-                "filename": "first",
-                "chunk_id": list,
-                "similarity": ["count", "mean"]
-            }
-            grouped = selected_rows.groupby("doc_id").agg(agg_dict)
-            grouped.columns = ["meeting_date", "committee", "filename", "chunk_id", "hit_count", "avg_similarity"]
-            grouped["document_score"] = grouped["hit_count"] * grouped["avg_similarity"]
-            grouped = grouped.sort_values(by="document_score", ascending=False).reset_index()
-            grouped = grouped.head(max_display)
-
-            from urllib.parse import quote
-
-            table_rows = []
-            for i, row in grouped.iterrows():
-                redirect_id = doc_meta_lookup.get(row["doc_id"], {}).get("redirect_to", row["doc_id"])
-                meta = doc_meta_lookup.get(redirect_id, {})
-                safe_url = quote(meta.get("url", ""), safe=':/?&=')
-                # Fallback: avoid crash if "page_num" is missing
-                mentioned_pages = "N/A"
-                table_rows.append({
-                    "Rank": i + 1,
-                    "Meeting Date": meta.get("meeting_date", "N/A"),
-                    "Committee": meta.get("committee", "N/A"),
-                    "File": f"[{os.path.basename(meta.get('filename', '[unknown]'))}]({safe_url})",
-                    "Document Type": meta.get("document_type", "N/A"),
-                    "Mentioned on page(s)": mentioned_pages,
-                    "Match Score": f"{row['document_score']:.2f}",
-                    "Chunks Matched": row["hit_count"],
-                    "Avg Similarity": f"{row['avg_similarity']:.2f}",
-                })
-
-            df = pd.DataFrame(table_rows)
-            df = df.drop_duplicates(subset="File").head(max_display)
-
-            # Generate HTML table
-            def make_clickable(link_text, url):
-                return f'<a href="{url}" target="_blank">{link_text}</a>'
-
-            rows = []
-            for _, row in df.iterrows():
-                url = row["File"].split("](")[-1].rstrip(")")
-                text = row["File"].split("[")[-1].split("]")[0]
-                link = make_clickable(text, url)
-                rows.append(f"<tr><td>{row['Rank']}</td><td>{row['Meeting Date']}</td><td>{row['Committee']}</td><td>{link}</td><td>{row['Document Type']}</td><td>{row['Mentioned on page(s)']}</td><td>{row['Match Score']}</td><td>{row['Chunks Matched']}</td><td>{row['Avg Similarity']}</td></tr>")
-
-            table_html = f"""
-            <table>
-                <thead>
-                    <tr><th>Rank</th><th>Meeting Date</th><th>Committee</th><th>File</th><th>Document Type</th><th>Mentioned on page(s)</th><th>Match Score</th><th>Chunks Matched</th><th>Avg Similarity</th></tr>
-                </thead>
-                <tbody>
-                    {''.join(rows)}
-                </tbody>
-            </table>
-            """
-            st.subheader("Relevant Documents")
-            st.markdown(table_html, unsafe_allow_html=True)
-
-            st.subheader("Relevant Documents (Preview)")
-            from urllib.parse import quote
-            for idx, chunk in enumerate(chunks):
-                doc_id = selected_rows.iloc[idx]["doc_id"]
-                redirect_id = doc_meta_lookup.get(doc_id, {}).get("redirect_to", doc_id)
-                meta = doc_meta_lookup.get(redirect_id, {})
-                doc_name = os.path.basename(meta.get("filename", "[unknown]"))
-                url = meta.get("url", "")
-                safe_url = quote(url, safe=':/?&=')
-                st.text_area(
-                    label=f"{doc_name} – {meta.get('meeting_date', '')}",
-                    value=chunk,
-                    height=150,
-                    label_visibility="collapsed"
-                )
-                st.markdown(
-                    f'<div style="margin-top:-15px; margin-bottom:30px;"><small><a href="{safe_url}" target="_blank">{doc_name}</a> – {meta.get("meeting_date", "N/A")}</small></div>',
-                    unsafe_allow_html=True
-                )
+with tabs[1]:
+    st.info("The AI Summary tab is under construction.")

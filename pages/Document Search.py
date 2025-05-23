@@ -44,32 +44,33 @@ import json
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Load chunk-level metadata
+# Load agenda item metadata
 @st.cache_data
 def load_chunk_metadata():
     import jsonlines
-    with jsonlines.open("data/embeddings/metadata_large.jsonl", "r") as reader:
+    with jsonlines.open("data/embeddings/agendas/metadata_agenda.jsonl", "r") as reader:
         records = list(reader)
     return pd.DataFrame(records)
 
 chunk_df = load_chunk_metadata()
 
-# Load FAISS index
+# Load FAISS index for agenda items
 @st.cache_resource
 def load_index():
-    return faiss.read_index("data/embeddings/council_index_large.faiss")
+    return faiss.read_index("data/embeddings/agendas/agenda_index.faiss")
 
 index = load_index()
 
 # --- Top-Level Keyword Search ---
 query = st.text_input(
-    "Search documents for a keyword or phrase",
+    "Search agenda items for a keyword or phrase",
     placeholder="What the council is doing to address disruption to traffic caused by frequent road closures? Many residents are complaining about it."
 )
 
 if query and len(df) > 0:
     log_query(query, page="Document Search")
     # --- Sidebar Filters ---
+
     st.sidebar.header("Filters")
 
     # Committee filter
@@ -91,9 +92,9 @@ if query and len(df) > 0:
 
     # --- Apply Filters ---
 
-    # --- Embedding-based semantic search with Ask GPT-style ranking ---
-    with st.spinner("Searching..."):
-        query_embedding = client.embeddings.create(input=[query], model="text-embedding-3-large").data[0].embedding
+    # --- Embedding-based semantic search with Ask GPT-style ranking on agenda items ---
+    with st.spinner("Searching agenda items..."):
+        query_embedding = client.embeddings.create(input=[query], model="text-embedding-3-small").data[0].embedding
         query_vector = np.array(query_embedding).astype("float32").reshape(1, -1)
         distances, indices = index.search(query_vector, 100)
 
@@ -109,11 +110,16 @@ if query and len(df) > 0:
         grouped["document_score"] = grouped["hit_count"] * grouped["avg_similarity"]
         grouped = grouped.sort_values(by="document_score", ascending=False).reset_index()
 
-        # Join to full document metadata
-        filtered_df = df[df["doc_id"].isin(grouped["doc_id"])].copy()
-        filtered_df["doc_id"] = filtered_df["doc_id"].astype(str)
+        st.write("doc_id in chunk hits (top 5):", chunk_hits["doc_id"].drop_duplicates().head().tolist())
+
+        # Load agenda metadata and join to document scores
+        agenda_df = pd.read_json("data/processed_register/agenda_manifest.jsonl", lines=True)
+        agenda_df["doc_id"] = agenda_df["doc_id"].astype(str)
+        st.write("doc_id in agenda metadata (top 5):", agenda_df["doc_id"].drop_duplicates().head().tolist())
+        filtered_df = agenda_df[agenda_df["doc_id"].isin(grouped["doc_id"])].copy()
         filtered_df = filtered_df.merge(grouped[["doc_id", "document_score"]], on="doc_id", how="left")
         filtered_df = filtered_df.sort_values(by="document_score", ascending=False)
+        filtered_df["meeting_date"] = pd.to_datetime(filtered_df["meeting_date"], errors="coerce")
 
     if selected_committee != "All":
         filtered_df = filtered_df[filtered_df["committee"] == selected_committee]
@@ -166,11 +172,11 @@ if query and len(df) > 0:
     else:
         st.info("No documents match the selected filters.")
 
-    # --- Preview top document snippets ---
-    st.subheader("📄 Best matching documents preview:")
+    # --- Preview top matching agenda items ---
+    st.subheader("📄 Best matching agenda items preview:")
 
     if chunk_hits.empty:
-        st.info("No matching content chunks available for preview.")
+        st.info("No matching agenda items available for preview.")
         st.stop()
 
     for _, row in filtered_df.iterrows():
@@ -184,13 +190,10 @@ if query and len(df) > 0:
         similar_chunks = doc_chunks[doc_chunks["similarity"] >= similarity_threshold].sort_values(by="similarity", ascending=False)
 
         if not similar_chunks.empty:
-            top_snippet = similar_chunks.iloc[0]
-            remaining_snippets = similar_chunks.iloc[1:]
+            top_chunks = similar_chunks
         else:
             # fallback: show top chunk even if below threshold
-            fallback_chunk = doc_chunks.sort_values(by="similarity", ascending=False).iloc[0]
-            top_snippet = fallback_chunk
-            remaining_snippets = pd.DataFrame()
+            top_chunks = doc_chunks.sort_values(by="similarity", ascending=False)
 
         meeting_date = row.get("meeting_date", "N/A")
         if pd.notna(meeting_date) and hasattr(meeting_date, 'strftime'):
@@ -199,21 +202,13 @@ if query and len(df) > 0:
         committee_formatted = committee.replace("_", " ").title()
         st.markdown(f"**Preview from [{doc_title}]({safe_url}), considered by the {committee_formatted} on {meeting_date}:**")
 
-        # Top snippet
-        try:
-            with open(top_snippet["source_file"], "r", encoding="utf-8") as f:
-                chunks = json.load(f)
-                snippet = chunks[top_snippet["chunk_id"]]["text"]
-                st.text_area(label="Chunk Preview", value=snippet, height=120, label_visibility="collapsed")
-        except Exception as e:
-            st.warning(f"Could not load top snippet from {top_snippet['source_file']}")
+        for _, c in top_chunks.iterrows():
+            similarity = c["similarity"]
+            st.markdown(f"Matched agenda item with similarity {similarity:.2f}")
 
-        # Remaining snippets
-        for _, c in remaining_snippets.iterrows():
-            try:
-                with open(c["source_file"], "r", encoding="utf-8") as f:
-                    chunks = json.load(f)
-                    snippet = chunks[c["chunk_id"]]["text"]
-                    st.text_area(label="Chunk Preview", value=snippet, height=120, label_visibility="collapsed")
-            except Exception as e:
-                st.warning(f"Could not load snippet from {c['source_file']}")
+    # --- Placeholder for upcoming PDF document semantic search ---
+    st.subheader("📄 PDF Document Matches (Coming Soon)")
+    st.info("This section will display semantic matches from full council PDF documents once the FAISS index is generated. Please check back shortly.")
+
+    # TODO: Load pdf_summary_embeddings.jsonl and agenda_index.faiss once ready
+    # Perform similar vector search and display PDF-level matches here
