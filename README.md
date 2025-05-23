@@ -44,7 +44,7 @@ council-assistant/
 │       ├── parsing_utils.py
 │       └── scraping_utils.py
 │
-├── data/│   
+├── data/   
 │   ├── glossary/                      # Curated term definitions used for enrichment
 │   │   └── glossary.json              # Canonical glossary entries with term metadata
 │   │  
@@ -53,11 +53,20 @@ council-assistant/
 │   │   ├── pdf_chunks.jsonl            # not yet ready
 │   │
 │   ├── embeddings/                  # FAISS indexes + embedding metadata
-│   │   ├── council_index_small.faiss   # legacy files, need to be regenerated separatelt for pdfs and agendas 
-│   │   ├── council_index_large.faiss
-│   │   ├── metadata_small.jsonl
-│   │   └── metadata_large.jsonl
-│   │
+│       ├── agendas/
+│       │   ├── agenda_index.faiss
+│       │   ├── metadata_agenda.jsonl
+│       │
+│       ├── pdf_summaries/
+│       │   ├── pdf_summary_index.faiss
+│       │   ├── metadata_pdf_summary.jsonl
+│       │
+│       ├── pdf_chunks/
+│       │   ├── pdf_chunks_index.faiss
+│       │   ├── metadata_pdf_chunks.jsonl
+│       ├── council_index_small.faiss   # legacy files, need to be regenerated separatelt for pdfs and agendas 
+│       ├── council_index_large.faiss   # legacy files, need to be regenerated separatelt for pdfs and agendas 
+│   
 │   ├── pdf_full_text/            # several thousands of .txt files with text of the scraped pdfs.
 │   │   ├── kcc_cc_2016-06-22_d5312b.txt 
 │   │   ├── etc
@@ -229,8 +238,8 @@ To support high-quality agenda embedding, notebook named "EDA_agenda_items_detai
 This script embeds high-quality agenda items into a FAISS index using OpenAI’s embedding API. It reads from `agenda_manifest.jsonl`, filters out already embedded items, and processes the remaining entries in batches.
 
 - **Combines `item_title` and `item_text`** to form a semantic unit for each chunk
-- **Embeds using `text-embedding-3-small`**, storing vectors in `agenda_index.faiss`
-- **Logs metadata to `metadata_agenda.jsonl`**, preserving chunk and meeting context
+- **Embeds using `text-embedding-3-small`**, storing vectors in `agendas/agenda_index.faiss`
+- **Logs metadata to `agendas/metadata_agenda.jsonl`**, preserving chunk and meeting context
 - **Updates manifest** to flag each item as `embedding_small = true` once completed
 
 Run this script after finalising the manifest, and before enabling semantic search in the Streamlit app.
