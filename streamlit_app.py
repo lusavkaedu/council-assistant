@@ -16,8 +16,16 @@ from modules.utils.logging_system import log_search, log_error, log_performance
 # --------------------------
 # 1. CONFIGURATION
 # --------------------------
-ROOT_FOLDER = Path("/Users/lgfolder/github/council-assistant")
-DATA_FOLDER = ROOT_FOLDER / "data"
+# Handle both local and cloud deployment paths
+import os
+if os.getenv("STREAMLIT_SHARING") or os.getenv("STREAMLIT_CLOUD") or not Path("/Users/lgfolder/github/council-assistant").exists():
+    # Cloud deployment - use relative paths
+    ROOT_FOLDER = Path(".")
+    DATA_FOLDER = ROOT_FOLDER / "data"
+else:
+    # Local development - use absolute path
+    ROOT_FOLDER = Path("/Users/lgfolder/github/council-assistant")
+    DATA_FOLDER = ROOT_FOLDER / "data"
 
 PATHS = {
     "meetings": DATA_FOLDER / "metadata/meetings.jsonl",
@@ -118,7 +126,7 @@ with st.spinner("Loading council data..."):
     data = load_base_data(PATHS)
     search_metadata = load_search_metadata(PATHS)
 
-# Validate data
+git config pull.rebase false# Validate data
 if not validate_data_integrity(data):
     st.stop()
 
