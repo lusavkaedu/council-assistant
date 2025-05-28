@@ -19,3 +19,51 @@ data/*
 storage/storage/*.json
 
 .streamlit/secrets.toml
+
+# Environment variables
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (keep structure, exclude content)
+logs/*.jsonl
+logs/*.log
+!logs/.gitkeep
+
+# Temporary files
+*.tmp
+*.temp
+
+# INCLUDE ESSENTIAL DATA FILES FOR DEPLOYMENT
+# Override previous exclusions for data files
+!data/
+!data/metadata/
+!data/metadata/*.jsonl
+!data/embeddings/
+!data/embeddings/*/
+!data/embeddings/*/*.faiss
+!data/embeddings/*/*.jsonl
+
+# Still exclude these large/unnecessary data files
+data/pdf_full_text/
+data/pdf_metadata/
+data/processed_register/.DS_Store
