@@ -1,8 +1,9 @@
-# Streamlined council search page using modular components
+# Streamlined council search page with logging and feedback
 import streamlit as st
 import pandas as pd
 from pathlib import Path
 import os
+import time
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -11,6 +12,28 @@ from modules.search.semantic_search import search_agendas, search_pdfs, sort_res
 from modules.search.result_formatters import format_agenda_results_enhanced, format_pdf_results_enhanced, display_results_with_pagination
 from modules.search.ai_analysis import generate_ai_analysis, get_analysis_source_info
 from modules.data.loaders import load_base_data, load_search_metadata, validate_data_integrity
+
+# Import logging and feedback systems (with fallback if modules don't exist)
+try:
+    from modules.utils.logging_system import log_search, log_error, log_performance
+    from modules.utils.feedback_system import (
+        show_feedback_sidebar, show_feedback_modal, show_bug_report_modal, 
+        show_quick_feedback, log_tab_change, log_filter_usage, log_ai_summary_request
+    )
+    LOGGING_AVAILABLE = True
+except ImportError:
+    # Fallback functions if logging modules don't exist
+    def log_search(*args, **kwargs): pass
+    def log_error(*args, **kwargs): pass
+    def log_performance(*args, **kwargs): pass
+    def show_feedback_sidebar(): pass
+    def show_feedback_modal(): pass
+    def show_bug_report_modal(): pass
+    def show_quick_feedback(): pass
+    def log_tab_change(*args): pass
+    def log_filter_usage(*args): pass
+    def log_ai_summary_request(): pass
+    LOGGING_AVAILABLE = False
 
 # --------------------------
 # 1. CONFIGURATION
@@ -31,11 +54,16 @@ PATHS = {
 GPT_MODEL = "gpt-4o-mini"
 load_dotenv()
 
+# Initialize session ID for logging
+if "session_id" not in st.session_state:
+    import uuid
+    st.session_state.session_id = str(uuid.uuid4())
+
 # --------------------------
 # 2. PAGE CONFIGURATION
 # --------------------------
 st.set_page_config(
-    page_title="Council Records Search",
+    page_title="Kent County Council Records Search",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -51,18 +79,36 @@ st.markdown("""
         color: white;
         text-align: center;
     }
-    .search-box {
-        padding: 1rem;
-        border-radius: 8px;
-        margin-bottom: 1rem;
-        border-left: 4px solid #d32f2f;
-        background-color: #fafafa;
-    }
     .filter-section {
         background-color: #fff;
         padding: 1rem;
         border-radius: 8px;
         border: 1px solid #e9ecef;
+        margin-bottom: 1rem;
+    }
+    /* Make tabs more prominent */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        margin-bottom: 2rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        padding: 12px 24px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        border: 2px solid #dee2e6;
+        font-size: 16px;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #d32f2f;
+        color: white;
+        border-color: #d32f2f;
+    }
+    /* Reduce heading size to balance with tabs */
+    .stTabs + div h3 {
+        font-size: 1.3rem;
+        margin-top: 0.5rem;
         margin-bottom: 1rem;
     }
 </style>
@@ -111,29 +157,41 @@ with st.sidebar:
         'sort_method': sort_method
     }
 
+# Add feedback to sidebar (only if logging is available)
+if LOGGING_AVAILABLE:
+    show_feedback_sidebar()
+
 # --------------------------
 # 4. HEADER & DATA LOADING
 # --------------------------
 st.markdown("""
 <div class="main-header">
-    <h1>Kent Council Records Search</h1>
+    <h1>Kent County Council Records Search</h1>
     <p>Search through thousands of council meetings, agenda items, and documents</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Load data
+# Load data with performance logging
+load_start_time = time.time()
 with st.spinner("Loading council data..."):
-    data = load_base_data(PATHS)
-    search_metadata = load_search_metadata(PATHS)
+    try:
+        data = load_base_data(PATHS)
+        search_metadata = load_search_metadata(PATHS)
+        load_time = time.time() - load_start_time
+        log_performance("data_loading", load_time, details={"data_counts": {k: len(v) for k, v in data.items()}})
+    except Exception as e:
+        log_error("data_loading_error", str(e))
+        st.error("Failed to load data. Please try again later.")
+        st.stop()
 
 # Validate data
 if not validate_data_integrity(data):
+    log_error("data_validation_error", "Data integrity check failed")
     st.stop()
 
 # --------------------------
 # 5. SEARCH INTERFACE
 # --------------------------
-st.markdown('<div class="search-box">', unsafe_allow_html=True)
 query = st.text_input(
     "Search all council records:",
     value=st.session_state.get("query", ""),
@@ -141,7 +199,6 @@ query = st.text_input(
     key="main_search_input",
     help="Enter keywords related to topics you're interested in. The search will look through agenda items and document summaries."
 )
-st.markdown('</div>', unsafe_allow_html=True)
 
 # Update session state
 if query != st.session_state.get("query", ""):
@@ -151,22 +208,14 @@ if query != st.session_state.get("query", ""):
 # 6. SEARCH TABS
 # --------------------------
 if st.session_state.get("query"):
-    tabs = st.tabs(["Previously Discussed", "Documents", "AI Analysis"])
+    tabs = st.tabs(["Meeting Discussions", "Documents & Reports", "AI Summary"])
     
-# TAB 1: AGENDA ITEMS
+    # TAB 0: AGENDA ITEMS
     with tabs[0]:
+        log_tab_change("Meeting Discussions")
         st.markdown("### Council Meeting Discussions")
         
-        # Results per page selector
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            results_per_page_agenda = st.selectbox(
-                "Results per page:",
-                options=[10, 25, 50, 100],
-                index=1,  # Default to 25
-                key="agenda_results_per_page"
-            )
-        
+        search_start_time = time.time()
         with st.spinner(f"Searching past discussions for '{st.session_state.query}'..."):
             try:
                 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -178,13 +227,14 @@ if st.session_state.get("query"):
                         client, 
                         agenda_index, 
                         search_metadata["agenda_metadata"],
-                        k=100  # Get more results from FAISS
+                        k=100
                     )
                     
+                    search_time = time.time() - search_start_time
+                    
                     if not agenda_results.empty:
-                        # IMPORTANT: Merge with meetings data to get web_meeting_code
+                        # Merge with meetings data
                         if not data["meetings"].empty:
-                            # Make sure we include web_meeting_code in the merge
                             meeting_cols = [col for col in ["meeting_id", "committee_name", "web_meeting_code"] 
                                           if col in data["meetings"].columns]
                             agenda_results = agenda_results.merge(
@@ -195,109 +245,105 @@ if st.session_state.get("query"):
                         
                         st.session_state.agenda_results = agenda_results
                         
-                        # Debug: Check if web_meeting_code is present
-                        if st.checkbox("Debug meeting codes for agenda", key="debug_agenda_meeting_codes"):
-                            st.write("Available columns in agenda_results:", agenda_results.columns.tolist())
-                            if 'web_meeting_code' in agenda_results.columns:
-                                st.write("Sample web_meeting_codes:", agenda_results['web_meeting_code'].head())
-                                st.write("Non-null web_meeting_codes:", agenda_results['web_meeting_code'].notna().sum())
-                            else:
-                                st.write("❌ web_meeting_code not found in agenda_results")
-                                if not data["meetings"].empty:
-                                    st.write("Available columns in meetings data:", data["meetings"].columns.tolist())
+                        # Log successful search
+                        log_search(st.session_state.query, "Meeting Discussions", len(agenda_results), 
+                                 search_time=search_time, filters=st.session_state.filters)
                         
-                        # Committee filter
-                        available_committees = []
-                        if 'committee_name' in agenda_results.columns:
-                            available_committees = agenda_results['committee_name'].dropna().unique()
+                        # Show filters with populated data
+                        filter_col1, filter_col2, filter_col3 = st.columns([2, 2, 1])
                         
-                        if len(available_committees) > 0:
-                            selected_committee = st.selectbox(
-                                "Filter by committee:",
-                                options=["All committees"] + sorted(available_committees),
-                                key="agenda_committee_filter"
-                            )
+                        with filter_col1:
+                            available_committees = []
+                            if 'committee_name' in agenda_results.columns:
+                                available_committees = agenda_results['committee_name'].dropna().unique()
                             
-                            filtered_agendas = agenda_results.copy()
-                            if selected_committee != "All committees":
-                                filtered_agendas = filtered_agendas[filtered_agendas['committee_name'] == selected_committee]
-                        else:
-                            filtered_agendas = agenda_results.copy()
+                            if len(available_committees) > 0:
+                                selected_committee = st.selectbox(
+                                    "Filter by committee:",
+                                    options=["All committees"] + sorted(available_committees),
+                                    key="agenda_committee_filter"
+                                )
+                                if selected_committee != "All committees":
+                                    log_filter_usage("committee", selected_committee)
+                            else:
+                                selected_committee = "All committees"
+                        
+                        with filter_col3:
+                            results_per_page_agenda = st.selectbox(
+                                "Results per page:",
+                                options=[10, 25, 50, 100],
+                                index=1,
+                                key="agenda_results_per_page"
+                            )
+                        
+                        # Apply filters
+                        filtered_agendas = agenda_results.copy()
+                        if selected_committee != "All committees" and 'committee_name' in filtered_agendas.columns:
+                            filtered_agendas = filtered_agendas[filtered_agendas['committee_name'] == selected_committee]
 
                         # Sort and display results
                         filtered_agendas = sort_results(filtered_agendas, st.session_state.filters['sort_method'])
-                        # Pass an empty DataFrame or None to prevent double-merging
                         formatted_agendas = format_agenda_results_enhanced(
                             filtered_agendas, 
-                            pd.DataFrame(),  # ← Empty DataFrame instead of data["meetings"]
+                            pd.DataFrame(),
                             data["agendas"]
                         )
                         display_results_with_pagination(formatted_agendas, results_per_page=results_per_page_agenda, key_prefix="agenda")
                         
                     else:
+                        log_search(st.session_state.query, "Meeting Discussions", 0, search_time=search_time)
                         st.info("No matching agenda items found. Try different search terms or check other tabs.")
                 else:
+                    log_error("search_error", "Could not load agenda search index or metadata")
                     st.error("Could not load agenda search index or metadata")
             except Exception as e:
+                log_error("agenda_search_error", str(e), {"query": st.session_state.query})
                 st.error(f"Error searching agendas: {str(e)}")
-                
-    # TAB 2: PDF DOCUMENTS
+
+    # TAB 1: PDF DOCUMENTS
     with tabs[1]:
+        log_tab_change("Documents & Reports")
         st.markdown("### Council Documents & Reports")
         
-        # Results per page selector
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            results_per_page = st.selectbox(
-                "Results per page:",
-                options=[10, 25, 50, 100],
-                index=1,  # Default to 25
-                key="pdf_results_per_page"
-            )
-        
+        search_start_time = time.time()
         with st.spinner(f"Searching documents for '{st.session_state.query}'..."):
             try:
                 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
                 pdf_index = load_search_index(PATHS["pdf_index"])
                 
                 if pdf_index is not None and not search_metadata["pdf_metadata"].empty:
-                    # Get more results initially (up to 100)
                     pdf_results = search_pdfs(
                         st.session_state.query, 
                         client, 
                         pdf_index, 
                         search_metadata["pdf_metadata"],
-                        k=100  # Get more results from FAISS
+                        k=100
                     )
                     
+                    search_time = time.time() - search_start_time
+                    
                     if not pdf_results.empty:
-                        # Merge with documents data - this is where the URLs are!
+                        # Merge with documents data
                         if not data["documents"].empty:
-                            # Get all needed columns including URL
                             doc_cols = [col for col in ['doc_id', 'url', 'display_title', 'source_filename', 
                                       'meeting_date', 'summary', 'committee_id', 'doc_category', 'meeting_id'] 
                                       if col in data["documents"].columns]
-                            
-                            pdf_results = pdf_results.merge(
-                                data["documents"][doc_cols],
-                                on='doc_id',
-                                how='left'
-                            )
+                            pdf_results = pdf_results.merge(data["documents"][doc_cols], on='doc_id', how='left')
                         
                         # Merge with meetings for committee names and meeting codes
                         if not data["meetings"].empty and 'meeting_id' in pdf_results.columns:
                             meeting_cols = [col for col in ['meeting_id', 'committee_name', 'web_meeting_code'] 
                                           if col in data["meetings"].columns]
-                            pdf_results = pdf_results.merge(
-                                data["meetings"][meeting_cols],
-                                on='meeting_id',
-                                how='left'
-                            )
+                            pdf_results = pdf_results.merge(data["meetings"][meeting_cols], on='meeting_id', how='left')
                         
                         st.session_state.pdf_results = pdf_results
                         
-                        # Filters
-                        filter_col1, filter_col2 = st.columns(2)
+                        # Log successful search
+                        log_search(st.session_state.query, "Documents & Reports", len(pdf_results),
+                                 search_time=search_time, filters=st.session_state.filters)
+                        
+                        # Show filters with populated data - all on same line
+                        filter_col1, filter_col2, filter_col3 = st.columns([2, 2, 1])
                         
                         with filter_col1:
                             committee_options = ["All committees"]
@@ -309,6 +355,8 @@ if st.session_state.get("query"):
                                 options=committee_options,
                                 key="pdf_committee_filter"
                             )
+                            if selected_committee != "All committees":
+                                log_filter_usage("committee", selected_committee)
                         
                         with filter_col2:
                             type_options = ["All document types"]
@@ -316,7 +364,7 @@ if st.session_state.get("query"):
                                 unique_types = pdf_results['doc_category'].dropna().unique()
                                 type_mapping = {
                                     "prod": "Reports",
-                                    "eqia": "Impact Assessments",
+                                    "eqia": "Impact Assessments", 
                                     "minutes": "Minutes",
                                     "other": "Other Documents"
                                 }
@@ -326,6 +374,16 @@ if st.session_state.get("query"):
                                 "Filter by document type:",
                                 options=type_options,
                                 key="pdf_type_filter"
+                            )
+                            if selected_type != "All document types":
+                                log_filter_usage("document_type", selected_type)
+                        
+                        with filter_col3:
+                            results_per_page = st.selectbox(
+                                "Results per page:",
+                                options=[10, 25, 50, 100],
+                                index=1,
+                                key="pdf_results_per_page"
                             )
                         
                         # Apply filters
@@ -338,7 +396,7 @@ if st.session_state.get("query"):
                             reverse_mapping = {
                                 "Reports": "prod",
                                 "Impact Assessments": "eqia",
-                                "Minutes": "minutes",
+                                "Minutes": "minutes", 
                                 "Other Documents": "other"
                             }
                             actual_type = reverse_mapping.get(selected_type, selected_type.lower())
@@ -350,23 +408,33 @@ if st.session_state.get("query"):
                         display_results_with_pagination(formatted_pdfs, results_per_page=results_per_page, key_prefix="pdf")
                         
                     else:
+                        log_search(st.session_state.query, "Documents & Reports", 0, search_time=search_time)
                         st.info("No matching documents found. Try different search terms or check other tabs.")
                 else:
+                    log_error("search_error", "Could not load PDF search index or metadata")
                     st.error("Could not load PDF search index or metadata")
             except Exception as e:
+                log_error("pdf_search_error", str(e), context={"query": st.session_state.query})
                 st.error(f"Error searching PDFs: {str(e)}")
 
-    # TAB 3: AI ANALYSIS
+    # TAB 2: AI SUMMARY
     with tabs[2]:
-        st.markdown("### AI Analysis")
+        log_tab_change("AI Summary")
+        st.markdown("### AI Summary")
         
-        col1, col2 = st.columns([3, 1])
+        col1, col2 = st.columns([1, 2])
         with col1:
-            st.info("This will analyze your search results and provide insights, key findings, and policy developments.")
+            generate_summary = st.button("Generate Summary", key="generate_ai_summary", type="primary")
         with col2:
-            generate_summary = st.button("Generate Analysis", key="generate_ai_summary", type="primary")
+            st.markdown("""
+            <div style="background-color: white; padding: 0.8rem; border-radius: 6px; border: 1px solid #dee2e6;">
+                This will analyze your search results and provide insights, key findings, and policy developments.
+            </div>
+            """, unsafe_allow_html=True)
         
         if generate_summary:
+            log_ai_summary_request()
+            
             if not st.session_state.get("query"):
                 st.warning("Please perform a search first")
             elif 'agenda_results' not in st.session_state and 'pdf_results' not in st.session_state:
@@ -379,6 +447,7 @@ if st.session_state.get("query"):
                     if agenda_results.empty and pdf_results.empty:
                         st.warning("No search results to analyze")
                     else:
+                        ai_start_time = time.time()
                         with st.spinner("Analyzing council records and generating insights..."):
                             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
                             
@@ -393,9 +462,14 @@ if st.session_state.get("query"):
                                 model=GPT_MODEL
                             )
                             
-                            # Display analysis
-                            st.markdown("### Analysis Results")
-                            st.markdown("---")
+                            ai_time = time.time() - ai_start_time
+                            log_performance("ai_analysis", ai_time, details={
+                                "query": st.session_state.query,
+                                "agenda_count": len(agenda_results),
+                                "pdf_count": len(pdf_results)
+                            })
+                            
+                            # Display analysis directly
                             st.markdown(analysis)
                             
                             # Show source information
@@ -408,12 +482,42 @@ if st.session_state.get("query"):
                                 st.write(f"**Total sources:** {source_info['total_sources']}")
                                 
                 except Exception as e:
+                    log_error("ai_analysis_error", str(e), context={"query": st.session_state.query})
                     st.error(f"Error generating AI analysis: {str(e)}")
+
+    # Show quick feedback for search results
+    show_quick_feedback()
+
 else:
-    # Welcome message
-    st.markdown("""
-    ### Welcome to Kent Council Records Search
+    # Welcome message with dynamic statistics
+    st.markdown("### Welcome to Kent County Council Records Search")
     
+    # Calculate statistics from loaded data
+    total_meetings = len(data["meetings"]) if not data["meetings"].empty else 0
+    total_documents = len(data["documents"]) if not data["documents"].empty else 0
+    
+    # Calculate date range
+    date_range_text = ""
+    if not data["meetings"].empty and "meeting_date" in data["meetings"].columns:
+        try:
+            dates = pd.to_datetime(data["meetings"]["meeting_date"], unit="ms", errors="coerce").dropna()
+            if not dates.empty:
+                start_year = dates.min().year
+                end_year = min(dates.max().year, 2025)  # Cap at current year
+                if start_year == end_year:
+                    date_range_text = f"from {start_year}"
+                else:
+                    date_range_text = f"spanning {start_year} to {end_year}"
+        except:
+            date_range_text = ""
+    
+    # Display statistics
+    if total_meetings > 0 or total_documents > 0:
+        st.markdown(f"""
+        **Search through {total_meetings:,} council meetings and {total_documents:,} documents {date_range_text}**
+        """)
+    
+    st.markdown("""
     **What you can search for:**
     - **Meeting discussions**: Find what councillors have said about specific topics
     - **Official documents**: Search through reports, assessments, and meeting minutes  
@@ -428,86 +532,7 @@ else:
     **Start by entering your search terms above**
     """)
 
-# Debug section
-if st.checkbox("Show debug information"):
-    with st.expander("Debug: Data Status"):
-        st.write("**Documents loaded:**", len(data["documents"]) if not data["documents"].empty else "None")
-        st.write("**Meetings loaded:**", len(data["meetings"]) if not data["meetings"].empty else "None")
-        st.write("**Agendas loaded:**", len(data["agendas"]) if not data["agendas"].empty else "None")
-        st.write("**Search metadata loaded:**", {k: len(v) for k, v in search_metadata.items()})
-        
-        if st.session_state.get("query"):
-            st.write("**Current search:**", st.session_state.query)
-            if 'agenda_results' in st.session_state:
-                st.write("**Agenda results:**", len(st.session_state.agenda_results))
-            if 'pdf_results' in st.session_state:
-                st.write("**PDF results:**", len(st.session_state.pdf_results))
-                
-                # Debug PDF URLs
-                if st.checkbox("Debug PDF URLs"):
-                    st.write("**Sample PDF result data:**")
-                    pdf_sample = st.session_state.pdf_results.head(3)
-                    for idx, row in pdf_sample.iterrows():
-                        st.write(f"Row {idx}:")
-                        st.write(f"  - doc_id: {row.get('doc_id')}")
-                        st.write(f"  - url from search results: {row.get('url')}")
-                        
-                        # Check what's in the documents DataFrame
-                        if not data["documents"].empty and 'doc_id' in row:
-                            doc_match = data["documents"][data["documents"]['doc_id'] == row['doc_id']]
-                            if not doc_match.empty:
-                                st.write(f"  - url from documents df: {doc_match.iloc[0].get('url')}")
-                                st.write(f"  - display_title: {doc_match.iloc[0].get('display_title')}")
-                                st.write(f"  - source_filename: {doc_match.iloc[0].get('source_filename')}")
-                            else:
-                                st.write("  - No matching document found in documents df")
-                        st.write("---")
-                
-                # Test direct URL links
-                if st.checkbox("Test URL Links"):
-                    st.write("**Direct URL Testing:**")
-                    if 'pdf_results' in st.session_state and not st.session_state.pdf_results.empty:
-                        test_row = st.session_state.pdf_results.iloc[0]
-                        test_url = test_row.get('url')
-                        test_title = test_row.get('display_title', 'Test Document')
-                        
-                        if pd.notna(test_url) and test_url:
-                            # Original URL
-                            st.write(f"**Original URL:** {test_url}")
-                            
-                            # URL encoded
-                            encoded_url = str(test_url).strip().replace(' ', '%20').replace('(', '%28').replace(')', '%29')
-                            st.write(f"**Encoded URL:** {encoded_url}")
-                            
-                            # Test different link formats
-                            st.markdown(f"**Test Link 1 (original):** [Click here]({test_url})")
-                            st.markdown(f"**Test Link 2 (encoded):** [Click here]({encoded_url})")
-                            st.markdown(f"**Test Link 3 (HTML):** <a href='{encoded_url}' target='_blank'>Click here</a>", unsafe_allow_html=True)
-                            
-                            # Show exactly what HTML we're generating in the table
-                            generated_html = f'<a href="{encoded_url}" target="_blank" style="color: #2c3e50; text-decoration: none; font-weight: 600; font-size: 16px;">{test_title}</a>'
-                            st.write(f"**Generated HTML:** {generated_html}")
-                            st.markdown(f"**Test Generated HTML:** {generated_html}", unsafe_allow_html=True)
-                            
-                            # Test the exact URL encoding that's being used in the function
-                            if test_url:
-                                url_parts = test_url.split('/')
-                                if len(url_parts) > 1:
-                                    from urllib.parse import quote
-if test_url:
-    from urllib.parse import quote
-    url_parts = test_url.strip().split('/')
-    if len(url_parts) > 1:
-        url_parts[-1] = quote(url_parts[-1], safe=":/?#[]@!$&'()*+,;=")
-        function_encoded_url = '/'.join(url_parts)
-    else:
-        function_encoded_url = quote(test_url, safe=":/?#[]@!$&'()*+,;=")
-
-    st.write(f"**Function-encoded URL:** {function_encoded_url}")
-    st.markdown(f"**Test Function-encoded:** [Click here]({function_encoded_url})")
-
-    generated_html = f'<a href="{function_encoded_url}" target="_blank" style="color: #2c3e50; text-decoration: none; font-weight: 600; font-size: 16px;">{test_title}</a>'
-    st.write(f"**Generated HTML:** {generated_html}")
-    st.markdown(f"**Test Generated HTML:** {generated_html}", unsafe_allow_html=True)
-else:
-    st.write("No URL found in first result")
+# Show feedback modals if triggered (only if logging is available)
+if LOGGING_AVAILABLE:
+    show_feedback_modal()
+    show_bug_report_modal()
