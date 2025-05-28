@@ -1,508 +1,721 @@
+# council_search.py
 import streamlit as st
 import pandas as pd
+import jsonlines
+from pathlib import Path
+import os
 import numpy as np
 import faiss
-import os
-from datetime import datetime
+from openai import OpenAI
+from dotenv import load_dotenv
+from typing import List, Dict
 
-# Load documents.jsonl
-import jsonlines
-with jsonlines.open("data/metadata/documents.jsonl", "r") as reader:
-    documents = pd.DataFrame(reader)
 
-# Load scraped_pdf_metadata.jsonl
-with jsonlines.open("data/pdf_metadata/scraped_pdf_metadata.jsonl", "r") as reader:
-    scraped_meta = pd.DataFrame(reader)
+# --------------------------
+# 1. CONFIGURE PATHS (EXACT TO YOUR SYSTEM)
+# --------------------------
+ROOT_FOLDER = Path("/Users/lgfolder/github/council-assistant")
+DATA_FOLDER = ROOT_FOLDER / "data"
 
-# Load summaries.jsonl
-with jsonlines.open("data/pdf_summaries/summaries.jsonl", "r") as reader:
-    summaries = pd.DataFrame(reader)
+PATHS = {
+    "meetings": DATA_FOLDER / "metadata/meetings.jsonl",
+    "agendas": DATA_FOLDER / "metadata/agendas.jsonl",
+    "pdf_warehouse": DATA_FOLDER / "metadata/pdf_warehouse.jsonl",  # Primary source
+    "pdf_index": DATA_FOLDER / "embeddings/pdf_summaries/pdf_summary_index.faiss",
+    "pdf_metadata": DATA_FOLDER / "embeddings/pdf_summaries/metadata_pdf_summaries.jsonl",
+    "agenda_index": DATA_FOLDER / "embeddings/agendas/agenda_index.faiss",
+    "agenda_metadata": DATA_FOLDER / "embeddings/agendas/metadata_agenda.jsonl"
+}
 
-# Load meetings.jsonl
-with jsonlines.open("data/metadata/meetings.jsonl", "r") as reader:
-    meetings = pd.DataFrame(reader)
+GPT_MODEL = "gpt-4o-mini"  # Consistent model for all AI interactions
 
-# Merge all on doc_id
-pdf_merged = documents.merge(scraped_meta, on="doc_id", how="left")
-pdf_merged = pdf_merged.merge(summaries, on="doc_id", how="left")
-# Merge web_meeting_code into pdf_merged from meetings.jsonl
-pdf_merged = pdf_merged.merge(meetings[["meeting_id", "web_meeting_code"]], on="meeting_id", how="left")
-# Deduplicate by doc_id after all merges
-pdf_merged = pdf_merged.drop_duplicates(subset="doc_id")
+load_dotenv()  # Load .env file for OpenAI API key
 
-# Page setup
-st.set_page_config(page_title="Unified Search", layout="wide")
+# --------------------------
+# 2. SAFE DATA LOADER FUNCTION
+# --------------------------
+def load_jsonl_safe(filepath):
+    """Loads a .jsonl file with error handling"""
+    try:
+        if not filepath.exists():
+            st.error(f"Missing file: {filepath}")
+            return pd.DataFrame()
+        
+        with jsonlines.open(filepath) as reader:
+            return pd.DataFrame(list(reader))  # Convert to list first
+            
+    except Exception as e:
+        st.error(f"Failed to load {filepath}: {str(e)}")
+        return pd.DataFrame()
 
-st.title("Search Council Records")
+# --------------------------
+# 3. INITIAL DATA LOAD
+# --------------------------
+@st.cache_data
+def load_base_data():
+    """Loads essential datasets using the new warehouse"""
+    return {
+        "documents": load_jsonl_safe(PATHS["pdf_warehouse"]),  # Single source of truth
+        "meetings": load_jsonl_safe(PATHS["meetings"]),
+        "agendas": load_jsonl_safe(PATHS["agendas"])
+    }
 
-if "shared_query" not in st.session_state:
-    st.session_state["shared_query"] = ""
+# --------------------------
+# 4. EMBEDDING GENERATION
+# --------------------------
+def get_embedding(query, client):
+    """Generate embedding vector for search"""
+    try:
+        response = client.embeddings.create(
+            input=[query],
+            model="text-embedding-3-small"
+        )
+        return np.array(response.data[0].embedding, dtype=np.float32).reshape(1, -1)
+    except Exception as e:
+        st.error(f"Embedding failed: {str(e)}")
+        return None
 
-query = st.session_state["shared_query"]
+# --------------------------
+# 5. SEARCH SERVICE SETUP
+# --------------------------
+@st.cache_resource
+def load_search_index(index_path):
+    """Load FAISS index with error handling"""
+    try:
+        if not Path(index_path).exists():
+            st.error(f"Missing index file: {index_path}")
+            return None
+        return faiss.read_index(str(index_path))
+    except Exception as e:
+        st.error(f"Failed to load search index: {str(e)}")
+        return None
 
-# Logic to clear main query input when set by AI Summary tab
-if st.session_state.get("reset_main_query"):
-    query = ""
-    st.session_state["shared_query"] = ""
-    st.session_state["reset_main_query"] = False
+# --------------------------
+# 6. SEARCH FUNCTIONS
+# --------------------------
+def search_agendas(query, client, index, metadata_df, k=5):
+    """Search agenda items using FAISS"""
+    if index is None or metadata_df.empty:
+        return pd.DataFrame()
+        
+    embedding = get_embedding(query, client)
+    if embedding is None:
+        return pd.DataFrame()
+    
+    # FAISS search
+    distances, indices = index.search(embedding, k)
+    
+    # Prepare results
+    valid_indices = indices[0][indices[0] < len(metadata_df)]  # Filter valid indices
+    if len(valid_indices) == 0:
+        return pd.DataFrame()
+        
+    results = metadata_df.iloc[valid_indices].copy()
+    results["score"] = distances[0][:len(valid_indices)]
+    return results.sort_values("score")
 
-# Session setup
-if "session_id" not in st.session_state:
-    import uuid
-    st.session_state["session_id"] = str(uuid.uuid4())
+def search_pdfs(query, client, index, metadata_df, k=5):
+    """Search PDF documents using FAISS"""
+    if index is None or metadata_df.empty:
+        return pd.DataFrame()
+        
+    embedding = get_embedding(query, client)
+    if embedding is None:
+        return pd.DataFrame()
+    
+    # FAISS search
+    distances, indices = index.search(embedding, k)
+    
+    # Prepare results
+    valid_indices = indices[0][indices[0] < len(metadata_df)]  # Filter valid indices
+    if len(valid_indices) == 0:
+        return pd.DataFrame()
+        
+    results = metadata_df.iloc[valid_indices].copy()
+    results["score"] = distances[0][:len(valid_indices)]
+    return results.sort_values("score")
 
-# Sidebar Search Input
-with st.sidebar:
-    st.markdown("### Search Filters")
-    max_docs_faiss = st.number_input("How many documents to retrieve from archive", min_value=10, max_value=200, value=50, step=10)
-    sort_order = st.selectbox("Sort by", ["Relevance", "Date (newest first)", "Date (oldest first)", "Committee"])
-    max_results = st.number_input("Max results to display", min_value=1, max_value=100, value=10, step=1)
-    committees_available = ["All"] + sorted(pdf_merged["committee_name"].dropna().unique().tolist())
-    selected_committee = st.selectbox("Committee", committees_available)
-    start_date = st.date_input("Start date", value=(pd.to_datetime("today") - pd.Timedelta(days=365)), format="DD/MM/YYYY")
-    end_date = st.date_input("End date", value=pd.Timestamp.today(), format="DD/MM/YYYY")
-    # selected_type = st.multiselect("Document Type", ["Agenda", "Minutes", "Report", "EQIA", "Motions"])  # Used in Full PDFs tab
-    st.markdown("---")
-
-st.markdown("### Search Results")
-tabs = st.tabs(["Agenda Items", "Full PDFs", "People", "AI Summary"])
-
-with tabs[0]:
-    new_query = st.text_input(
-        "What are you looking for in council records?",
-        value=st.session_state["shared_query"],
-        placeholder="What is the latest council position on 20mph zones?",
-        key="agenda_query"
-    )
-    if new_query != st.session_state["shared_query"]:
-        st.session_state["shared_query"] = new_query
-        query = new_query
-
-    if query.strip():  # Only show content if there's an actual query
-        # [Keep all the existing search and display logic here]
-        import jsonlines
-        from openai import OpenAI
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-        # Load metadata
-        with jsonlines.open("data/embeddings/agendas/metadata_agenda.jsonl", "r") as reader:
-            agenda_df = pd.DataFrame(reader)
-
-        # Load FAISS index
-        index = faiss.read_index("data/embeddings/agendas/agenda_index.faiss")
-
-        # Prevent embedding errors when query is empty
-        if query and query.strip():
-            embedding = client.embeddings.create(input=[query], model="text-embedding-3-small").data[0].embedding
-            embedding = np.array(embedding, dtype=np.float32).reshape(1, -1)
-            distances, indices = index.search(embedding, 100)
+# --------------------------
+# 7. RESULT FORMATTERS
+# --------------------------
+def format_agenda_results(results, meetings_df, agendas_df):
+    """Format agenda results with proper titles"""
+    if results.empty:
+        return pd.DataFrame()
+    
+    try:
+        # Merge with meetings data first
+        if not meetings_df.empty and "meeting_id" in results.columns:
+            results = results.merge(
+                meetings_df[["meeting_id", "web_meeting_code"]],
+                on="meeting_id",
+                how="left"
+            )
+        
+        # Then merge with agendas to get titles
+        if not agendas_df.empty:
+            chunk_col = "chunk_id" if "chunk_id" in results.columns else "agenda_id"
+            if chunk_col in results.columns:
+                results = results.merge(
+                    agendas_df[["agenda_id", "item_title"]],
+                    left_on=chunk_col,
+                    right_on="agenda_id",
+                    how="left"
+                )
+        
+        # Handle missing titles
+        results["item_title"] = results.get("item_title", "Untitled Agenda Item").fillna("Untitled Agenda Item")
+        
+        # Date formatting with error handling
+        if "meeting_date" in results.columns:
+            try:
+                results["Date"] = pd.to_datetime(
+                    results["meeting_date"],
+                    unit="ms",
+                    errors="coerce"
+                ).dt.strftime("%d %b %Y")
+            except:
+                results["Date"] = "Unknown Date"
         else:
-            distances, indices = np.array([]), np.array([[]])
-        if distances.size > 0 and indices.size > 0:
-            agenda_hits = agenda_df.iloc[indices[0]].copy()
-            agenda_hits["score"] = distances[0]
+            results["Date"] = "Unknown Date"
+        
+        # Create clickable dates
+        if "web_meeting_code" in results.columns:
+            results["Date"] = results.apply(
+                lambda row: (
+                    f'<a href="https://democracy.kent.gov.uk/ieListDocuments.aspx?MId={row["web_meeting_code"]}" '
+                    f'target="_blank">{row["Date"]}</a>'
+                    if pd.notna(row.get("web_meeting_code"))
+                    else row["Date"]
+                ),
+                axis=1
+            )
+        
+        # Clean committee names
+        if "committee_id" in results.columns:
+            results["Committee"] = (
+                results["committee_id"]
+                .str.replace("-", " ")
+                .str.title()
+            )
+        elif "committee_name" in results.columns:
+            results["Committee"] = results["committee_name"]
         else:
-            agenda_hits = agenda_df.head(0).copy()
-            agenda_hits["score"] = []
-        # Apply sorting based on sidebar selection
-        if sort_order == "Relevance":
-            agenda_hits = agenda_hits.sort_values("score")
-        elif sort_order == "Date (newest first)":
-            agenda_hits = agenda_hits.sort_values("meeting_date", ascending=False)
-        elif sort_order == "Date (oldest first)":
-            agenda_hits = agenda_hits.sort_values("meeting_date", ascending=True)
-        elif sort_order == "Committee":
-            agenda_hits = agenda_hits.sort_values("committee_id")
+            results["Committee"] = "Unknown Committee"
+        
+        return results[[
+            "Date",
+            "Committee", 
+            "item_title",
+            "score"
+        ]].rename(columns={
+            "item_title": "Agenda Title",
+            "score": "Score"
+        })
+        
+    except Exception as e:
+        st.error(f"Error formatting agenda results: {str(e)}")
+        return pd.DataFrame()
 
-        # Format date
-        agenda_hits["meeting_date"] = pd.to_datetime(agenda_hits["meeting_date"], unit="ms", errors="coerce").dt.date
-
-        # Clean up and format columns
-        agenda_hits["Committee"] = agenda_hits["committee_id"].str.replace("_", " ").str.replace("-", " ").str.title()
-        # Updated date formatting to short month
-        agenda_hits["Meeting Date"] = agenda_hits["meeting_date"].apply(lambda d: d.strftime("%-d %b %Y") if pd.notnull(d) else "")
-
-        # Load original agenda metadata to recover fields like item_title
-        with jsonlines.open("data/metadata/agendas.jsonl", "r") as reader:
-            agenda_meta = pd.DataFrame(reader)
-
-        # Join on agenda_id, include item_title, item_text, and pdf_urls
-        agenda_hits = agenda_hits.merge(agenda_meta[["agenda_id", "item_title", "item_text", "pdf_urls"]], left_on="chunk_id", right_on="agenda_id", how="left")
-        # Deduplicate by chunk_id after merging metadata
-        agenda_hits = agenda_hits.drop_duplicates(subset="chunk_id")
-        # Populate correct date format for agenda items
-        agenda_hits["meeting_dt"] = pd.to_datetime(agenda_hits["meeting_date"], unit="ms", errors="coerce")
-        agenda_hits["meeting_str"] = agenda_hits["meeting_dt"].dt.strftime("%b %Y")
-
-        # Load meetings.jsonl
-        with jsonlines.open("data/metadata/meetings.jsonl", "r") as reader:
-            meetings = pd.DataFrame(reader)
-
-        # Merge web_meeting_code into agenda_hits
-        agenda_hits = agenda_hits.merge(meetings[["meeting_id", "web_meeting_code"]], on="meeting_id", how="left")
-
-        # Update Meeting Date to be a hyperlink if web_meeting_code is available
-        agenda_hits["Meeting Date"] = agenda_hits.apply(
-            lambda row: f'<a href="https://democracy.kent.gov.uk/ieListDocuments.aspx?MId={row["web_meeting_code"]}" target="_blank">{row["Meeting Date"]}</a>'
-            if pd.notnull(row["web_meeting_code"]) and pd.notnull(row["Meeting Date"]) else row["Meeting Date"],
+def format_pdf_results(results, documents_df, meetings_df):
+    """Robust PDF formatting with all possible fallbacks"""
+    if results.empty:
+        return pd.DataFrame()
+    
+    try:
+        # Merge with documents data
+        if not documents_df.empty and "doc_id" in results.columns:
+            available_doc_cols = [col for col in ['doc_id', 'url', 'display_title', 'source_filename', 
+                                'meeting_date', 'summary', 'committee_id', 'doc_category', 'meeting_id'] 
+                                if col in documents_df.columns]
+            
+            results = results.merge(
+                documents_df[available_doc_cols],
+                on='doc_id',
+                how='left'
+            )
+        
+        # Try to get committee names
+        if not meetings_df.empty and 'meeting_id' in results.columns and 'meeting_id' in meetings_df.columns:
+            results = results.merge(
+                meetings_df[['meeting_id', 'committee_name']],
+                on='meeting_id',
+                how='left'
+            )
+        
+        # Committee name fallbacks
+        if 'committee_name' not in results.columns or results['committee_name'].isna().all():
+            if 'committee_id' in results.columns:
+                results['committee_name'] = results['committee_id'].str.replace("-", " ").str.title()
+            else:
+                results['committee_name'] = 'Unknown Committee'
+        
+        # Document links with fallbacks
+        results["Document"] = results.apply(
+            lambda row: (
+                f'<a href="{row["url"]}" target="_blank">'
+                f'{row.get("display_title", row.get("source_filename", "Document"))}'
+                f'</a>'
+            ) if pd.notna(row.get("url")) else row.get("display_title", row.get("source_filename", "Document")),
             axis=1
         )
-
-        # Load PDF metadata for display names
-        with jsonlines.open("data/metadata/documents.jsonl", "r") as reader:
-            documents = pd.DataFrame(reader)
-        with jsonlines.open("data/pdf_metadata/scraped_pdf_metadata.jsonl", "r") as reader:
-            scraped_meta = pd.DataFrame(reader)
-        with jsonlines.open("data/pdf_summaries/summaries.jsonl", "r") as reader:
-            summaries = pd.DataFrame(reader)
-        pdf_merged = documents.merge(scraped_meta, on="doc_id", how="left")
-        pdf_merged = pdf_merged.merge(summaries, on="doc_id", how="left")
-        url_to_title = pdf_merged.set_index("url")["item_title"].to_dict()
-
-        # Replace tooltip logic with combined cell content: bold title, full text, PDF links
-        def format_agenda_item(title, text, urls):
-            clean_text = text.replace("\n\n", "<br><br>").replace("\n", " ")
-            html = f"<strong>{title}</strong><br><br>{clean_text}"
-            if isinstance(urls, list):
-                seen_urls = set()
-                for url in urls:
-                    if url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-                    doc_info = pdf_merged[pdf_merged["url"] == url]
-                    # New label logic per instructions
-                    if not doc_info.empty:
-                        display = doc_info["display_title"].dropna().values[0] if "display_title" in doc_info and not doc_info["display_title"].dropna().empty else ""
-                        filename = doc_info["source_filename"].dropna().values[0] if "source_filename" in doc_info and not doc_info["source_filename"].dropna().empty else ""
-                        label = f"{display} ({filename})".strip() if display and filename else display or filename or "View PDF"
-                    else:
-                        label = "View PDF"
-                    html += f'<br><a href="{url}" target="_blank">{label}</a>'
-            return html
-
-        agenda_hits["Agenda Item"] = [
-            format_agenda_item(
-                row["item_title"],
-                row["item_text"],
-                row.get("pdf_urls", [])
+        
+        # Date formatting with fallback
+        if "meeting_date" in results.columns:
+            try:
+                results["Date"] = pd.to_datetime(
+                    results["meeting_date"],
+                    unit="ms",
+                    errors="coerce"
+                ).dt.strftime("%d %b %Y")
+            except:
+                results["Date"] = "Unknown Date"
+        else:
+            results["Date"] = "Unknown Date"
+        
+        # Type handling with fallbacks
+        if "doc_category" in results.columns:
+            type_mapping = {
+                "prod": "Report",
+                "eqia": "Impact Assessment", 
+                "other": "Document",
+                "minutes": "Minutes"
+            }
+            results["Type"] = results["doc_category"].apply(
+                lambda x: type_mapping.get(str(x).lower(), str(x).title())
             )
-            for _, row in agenda_hits.iterrows()
-        ]
+        else:
+            results["Type"] = "Document"
+        
+        return results[[
+            "Date",
+            "committee_name",
+            "Document", 
+            "Type",
+            "score"
+        ]].rename(columns={
+            "committee_name": "Committee",
+            "score": "Score"
+        })
+        
+    except Exception as e:
+        st.error(f"Error formatting PDF results: {str(e)}")
+        return pd.DataFrame()
 
-        st.write("### Previously Discussed:")
-        display_df = agenda_hits[["Meeting Date", "Committee", "Agenda Item"]]
-        st.markdown(display_df.head(max_results).to_html(escape=False, index=False), unsafe_allow_html=True)
+# --------------------------
+# 8. AI SUMMARY FUNCTIONS
+# --------------------------
+def build_ai_prompt(query: str, agenda_results: pd.DataFrame, pdf_results: pd.DataFrame, 
+                   agendas_df: pd.DataFrame, meetings_df: pd.DataFrame, documents_df: pd.DataFrame) -> str:
+    """Builds complete AI prompt with all metadata"""
+    context = ""
+    
+    # Add agenda items context
+    if not agenda_results.empty:
+        context += "## Relevant Agenda Items:\n"
+        for _, row in agenda_results.head(4).iterrows():
+            agenda_id = row.get('agenda_id', row.get('chunk_id', ''))
+            
+            # Get agenda text and meeting info
+            agenda_text = ""
+            meeting_info = {}
+            
+            if agenda_id and not agendas_df.empty:
+                matching_agenda = agendas_df[agendas_df['agenda_id'] == agenda_id]
+                if not matching_agenda.empty:
+                    agenda_text = matching_agenda.iloc[0].get('item_text', '')
+            
+            meeting_id = row.get('meeting_id')
+            if meeting_id and not meetings_df.empty:
+                matching_meeting = meetings_df[meetings_df['meeting_id'] == meeting_id]
+                if not matching_meeting.empty:
+                    meeting_row = matching_meeting.iloc[0]
+                    meeting_info = {
+                        'date': meeting_row.get('meeting_date'),
+                        'committee': meeting_row.get('committee_name'),
+                        'title': meeting_row.get('meeting_title')
+                    }
+            
+            # Format date
+            date_str = "Unknown date"
+            if meeting_info.get('date'):
+                try:
+                    date_str = pd.to_datetime(meeting_info['date'], unit='ms').strftime('%d %b %Y')
+                except:
+                    pass
+            
+            context += f"### {row.get('item_title', 'Agenda Item')}\n"
+            context += f"- Date: {date_str}\n"
+            context += f"- Committee: {meeting_info.get('committee', 'Unknown committee')}\n"
+            context += f"- Meeting: {meeting_info.get('title', '')}\n"
+            context += f"\n**Content:**\n{agenda_text or 'No content available'}\n\n"
+    
+    # Add PDF documents context
+    if not pdf_results.empty:
+        context += "## Relevant Documents:\n"
+        for _, row in pdf_results.head(6).iterrows():
+            doc_id = row.get('doc_id')
+            doc_meta = {}
+            
+            if doc_id and not documents_df.empty:
+                matching_doc = documents_df[documents_df['doc_id'] == doc_id]
+                if not matching_doc.empty:
+                    doc_row = matching_doc.iloc[0]
+                    doc_meta = {
+                        'title': doc_row.get('display_title'),
+                        'type': doc_row.get('doc_category'),
+                        'date': doc_row.get('meeting_date'),
+                        'committee': doc_row.get('committee_name'),
+                        'summary': doc_row.get('summary')
+                    }
+            
+            # Format date
+            date_str = "Unknown date"
+            if doc_meta.get('date'):
+                try:
+                    date_str = pd.to_datetime(doc_meta['date'], unit='ms').strftime('%d %b %Y')
+                except:
+                    pass
+            
+            # Format type
+            doc_type = str(doc_meta.get('type', '')).upper()
+            type_mapping = {
+                "PROD": "Report",
+                "EQIA": "Impact Assessment"
+            }
+            doc_type = type_mapping.get(doc_type, doc_type)
+            
+            context += f"### {doc_meta.get('title', 'Document')}\n"
+            context += f"- Type: {doc_type}\n"
+            context += f"- Date: {date_str}\n"
+            context += f"- Committee: {doc_meta.get('committee', 'Unknown committee')}\n"
+            context += f"\n**Summary:**\n{doc_meta.get('summary', 'No summary available')}\n\n"
+    
+    return f"""Analyze these council records about '{query}'. Focus on:
 
-with tabs[1]:
-    new_query = st.text_input(
-        "What are you looking for in council records?",
-        value=query,
-        placeholder="What is the latest council position on 20mph zones?",
-        key="pdf_query"
+1. Key policy positions and decisions
+2. Timeline of changes/developments
+3. Differences between committees
+4. Specific actions taken or proposed
+
+Context:
+{context}
+
+Guidelines:
+- Reference documents by title and date
+- Note conflicting viewpoints if present
+- Highlight most recent developments
+- Keep analysis under 400 words"""
+
+# --------------------------
+# 9. APP LAYOUT
+# --------------------------
+st.set_page_config(
+    page_title="Council Records Search",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Initialize session state
+if 'query' not in st.session_state:
+    st.session_state.query = ""
+if 'filters' not in st.session_state:
+    st.session_state.filters = {}
+
+# Sidebar filters
+with st.sidebar:
+    st.markdown("### Search Filters")
+    
+    # Date range filter
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input(
+            "Start date",
+            value=pd.to_datetime("today") - pd.Timedelta(days=365*2),
+            format="DD-MM-YYYY"
+        )
+    with col2:
+        end_date = st.date_input(
+            "End date", 
+            value=pd.to_datetime("today"),
+            format="DD-MM-YYYY"
+        )
+
+    # Sorting options
+    st.markdown("### Sorting Options")
+    sort_method = st.selectbox(
+        "Sort results by",
+        options=["Relevance (default)", "Date (earliest first)", "Date (latest first)"],
+        key="sort_method"
     )
-    if new_query != st.session_state["shared_query"]:
-        st.session_state["shared_query"] = new_query
-        query = new_query
-    import jsonlines
 
-    # Use preloaded pdf_merged and meetings data
-    # Ensure web_meeting_code is present in pdf_merged, merge if missing
-    if "web_meeting_code" not in pdf_merged.columns:
-        pdf_merged = pdf_merged.merge(meetings[["meeting_id", "web_meeting_code"]], on="meeting_id", how="left")
-    # Create a new column for meeting URL
-    pdf_merged["meeting_url"] = pdf_merged["web_meeting_code"].apply(
-        lambda mid: f"https://democracy.kent.gov.uk/ieListDocuments.aspx?MId={mid}" if pd.notnull(mid) else None
-    )
+    # Store filters in session state
+    st.session_state.filters = {
+        'start_date': start_date,
+        'end_date': end_date,
+        'sort_method': sort_method
+    }
 
-    import faiss
-    from openai import OpenAI
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Load data with progress bar
+with st.spinner("Loading council data..."):
+    data = load_base_data()
 
-    # Load summary metadata and FAISS index
-    with jsonlines.open("data/embeddings/pdf_summaries/metadata_pdf_summaries.jsonl", "r") as reader:
-        summary_meta = pd.DataFrame(reader)
-    faiss_index = faiss.read_index("data/embeddings/pdf_summaries/pdf_summary_index.faiss")
+# Show data status
+if not all(not df.empty for df in data.values()):
+    st.error("❌ Critical data failed to load. Check file paths.")
+    st.stop()
 
-    # Embed query and search (only if query is non-empty)
-    if query and query.strip():
-        query_vector = client.embeddings.create(input=[query], model="text-embedding-3-small").data[0].embedding
-        query_vector = np.array(query_vector, dtype=np.float32).reshape(1, -1)
-        D, I = faiss_index.search(query_vector, int(max_docs_faiss))
-        summary_hits = summary_meta.iloc[I[0]].copy()
-        summary_hits["score"] = D[0]
-        summary_hits = summary_hits.sort_values("score")
-    else:
-        summary_hits = summary_meta.head(0).copy()
-        summary_hits["score"] = []
+# Main search interface
+st.title("🔍 Kent Council Records")
+query = st.text_input(
+    "Search all council records:",
+    value=st.session_state.get("query", ""),
+    placeholder="E.g.: 'Why do we have so many road closures in Kent?' or 'SEND schools new places'",
+    key="main_search_input"
+)
 
-    # Guard: suppress table if query is empty
-    if not query.strip():
-        st.stop()
-
-    # Merge scores into pdf_merged
-    filtered_pdf_hits = pdf_merged[pdf_merged["doc_id"].isin(summary_hits["doc_id"])]
-    filtered_pdf_hits = filtered_pdf_hits.merge(summary_hits[["doc_id", "score"]], on="doc_id", how="left")
-    filtered_pdf_hits = filtered_pdf_hits.sort_values("score")
-
-    # Apply committee filter
-    if selected_committee != "All":
-        filtered_pdf_hits = filtered_pdf_hits[filtered_pdf_hits["committee_name"] == selected_committee]
-
-    # Apply sorting based on sidebar selection
-    if sort_order == "Relevance":
-        filtered_pdf_hits = filtered_pdf_hits.sort_values("score")
-    elif sort_order == "Date (newest first)":
-        filtered_pdf_hits = filtered_pdf_hits.sort_values("meeting_date", ascending=False)
-    elif sort_order == "Date (oldest first)":
-        filtered_pdf_hits = filtered_pdf_hits.sort_values("meeting_date", ascending=True)
-    elif sort_order == "Committee":
-        filtered_pdf_hits = filtered_pdf_hits.sort_values("committee_id")
-
-    # Rebuild display table
-    filtered_pdf_hits["Meeting Date"] = pd.to_datetime(filtered_pdf_hits["meeting_date"], unit="ms", errors="coerce").dt.strftime("%-d %b %Y")
-    filtered_pdf_hits["Meeting Date"] = filtered_pdf_hits.apply(
-        lambda row: f'<a href="{row["meeting_url"]}" target="_blank">{row["Meeting Date"]}</a>'
-        if pd.notnull(row["meeting_url"]) and pd.notnull(row["Meeting Date"]) else row["Meeting Date"],
-        axis=1
-    )
-    filtered_pdf_hits["Document"] = filtered_pdf_hits.apply(
-        lambda row: (
-            f'<a href="{row["url"]}" target="_blank"><strong>{row["display_title"]}</strong></a><br>{row["summary"]}'
-            if pd.notnull(row["url"]) and pd.notnull(row["display_title"])
-            else f'<strong>{row["display_title"]}</strong><br>{row["summary"]}' if pd.notnull(row["display_title"])
-            else row["summary"]
-        ),
-        axis=1
-    )
-    filtered_pdf_hits["doc_category"] = filtered_pdf_hits["doc_category"].apply(
-        lambda val: val.upper() if str(val).lower() in {"prod", "eqia"} else str(val).title()
-    )
-    pdf_display = filtered_pdf_hits[[
-        "Meeting Date",
-        "committee_name",
-        "doc_category",
-        "Document"
-    ]].rename(columns={
-        "committee_name": "Committee",
-        "doc_category": "Type"
-    })
-    st.write("### The Most Relevant Documents:")
-    styled_html = """
-<style>
-table td:nth-child(1) {
-    min-width: 140px;
-    white-space: nowrap;
-}
-</style>
-""" + pdf_display.head(max_results).to_html(escape=False, index=False)
-    st.markdown(styled_html, unsafe_allow_html=True)
+# Store query in session state
+if query != st.session_state.get("query", ""):
+    st.session_state.query = query
 
 
-# --- People Tab (tabs[2]) ---
-with tabs[2]:
-    new_query = st.text_input(
-        "What are you looking for in council records?",
-        value=st.session_state["shared_query"],
-        placeholder="What is the latest council position on 20mph zones?",
-        key="people_query"
-    )
-    if new_query != st.session_state["shared_query"]:
-        st.session_state["shared_query"] = new_query
-        query = new_query
+# --------------------------
+# Sort helper function
+# --------------------------
+def sort_results(results_df: pd.DataFrame, sort_method: str) -> pd.DataFrame:
+    """Sort search results based on user preference"""
+    if results_df.empty:
+        return results_df
 
-    st.write("Coming soon: People search results will appear here.")
+    if sort_method == "Date (earliest first)":
+        if "meeting_date" in results_df.columns:
+            return results_df.sort_values("meeting_date", ascending=True)
+        elif "Date" in results_df.columns:
+            return results_df.sort_values("Date", ascending=True)
+    elif sort_method == "Date (latest first)":
+        if "meeting_date" in results_df.columns:
+            return results_df.sort_values("meeting_date", ascending=False)
+        elif "Date" in results_df.columns:
+            return results_df.sort_values("Date", ascending=False)
 
-with tabs[3]:
-    new_query = st.text_input(
-        "Ask a question about the most relevant documents:",
-        value=st.session_state["shared_query"],
-        placeholder="What has the council said recently about road maintenance?",
-        key="ai_query"
-    )
-    if new_query != st.session_state["shared_query"]:
-        st.session_state["shared_query"] = new_query
-        query = new_query
+    if "score" in results_df.columns:
+        return results_df.sort_values("score", ascending=True)
 
-    # Always render and assign new_query, regardless of query state
-    question = new_query
-    st.sidebar.markdown("### AI Summary Settings")
-    top_k = st.sidebar.slider("Number of summaries to send to GPT", min_value=1, max_value=20, value=5)
-    context_window = st.sidebar.slider("Adjacent summaries to include", min_value=0, max_value=3, value=1)
-    temperature = st.sidebar.slider("GPT Temperature", min_value=0.0, max_value=1.0, value=0.3, step=0.1)
+    return results_df
 
-    preview_chunks = st.button("Generate AI Summary")
-    # Logic to clear main query input when a new question is submitted
-    if preview_chunks and question:
-        st.session_state["reset_main_query"] = True
+tabs = st.tabs(["Agenda Items", "PDF Documents", "AI Summary"])
 
-    if preview_chunks and question.strip():
-        with st.spinner("Generating summary..."):
-                from openai import OpenAI
-                import jsonlines
+# --------------------------
+# TAB 1: AGENDA ITEMS
+# --------------------------
+with tabs[0]:
+    if st.session_state.get("query"):
+        with st.spinner(f"Searching agendas for '{st.session_state.query}'..."):
+            try:
                 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                
+                agenda_index = load_search_index(PATHS["agenda_index"])
+                agenda_meta = load_jsonl_safe(PATHS["agenda_metadata"])
+                
+                if agenda_index and not agenda_meta.empty:
+                    agenda_results = search_agendas(st.session_state.query, client, agenda_index, agenda_meta)
+                    
+                    if not agenda_results.empty:
+                        # Merge with meetings data for committee info
+                        if not data["meetings"].empty:
+                            agenda_results = agenda_results.merge(
+                                data["meetings"][["meeting_id", "committee_name"]],
+                                on="meeting_id",
+                                how="left"
+                            )
+                        
+                        st.session_state.agenda_results = agenda_results
+                        
+                        # Committee filter
+                        available_committees = []
+                        if 'committee_name' in agenda_results.columns:
+                            available_committees = agenda_results['committee_name'].dropna().unique()
+                        
+                        selected_committee = st.selectbox(
+                            "Filter by committee",
+                            options=["All"] + sorted(available_committees),
+                            key="agenda_committee_filter"
+                        )
+                        
+                        # Apply filter
+                        filtered_agendas = agenda_results.copy()
+                        if selected_committee != "All":
+                            filtered_agendas = filtered_agendas[filtered_agendas['committee_name'] == selected_committee]
 
-                def build_user_prompt(query, context_text):
-                    return f"""Answer the following question using only the information in the provided context.
+                        # Sort results
+                        filtered_agendas = sort_results(filtered_agendas, st.session_state.filters['sort_method'])
 
-Question:
-{query}
+                        # Display results
+                        formatted_agendas = format_agenda_results(
+                            filtered_agendas, 
+                            data["meetings"],
+                            data["agendas"]
+                        )
+                        
+                        if not formatted_agendas.empty:
+                            st.markdown(
+                                formatted_agendas.to_html(escape=False, index=False),
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            st.warning("No results after filtering")
+                    else:
+                        st.warning("No matching agenda items found")
+                else:
+                    st.error("Could not load agenda search index or metadata")
+            except Exception as e:
+                st.error(f"Error searching agendas: {str(e)}")
 
-Relevant Documents:
-{context_text}
+# --------------------------
+# TAB 2: PDF DOCUMENTS
+# --------------------------
+with tabs[1]:
+    if st.session_state.get("query"):
+        with st.spinner(f"Searching PDFs for '{st.session_state.query}'..."):
+            try:
+                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                
+                pdf_index = load_search_index(PATHS["pdf_index"])
+                pdf_meta = load_jsonl_safe(PATHS["pdf_metadata"])
+                
+                if pdf_index and not pdf_meta.empty:
+                    pdf_results = search_pdfs(st.session_state.query, client, pdf_index, pdf_meta)
+                    
+                    if not pdf_results.empty:
+                        # Merge with documents data
+                        if not data["documents"].empty:
+                            doc_cols = [col for col in ['doc_id', 'committee_id', 'doc_category', 'meeting_id'] 
+                                      if col in data["documents"].columns]
+                            pdf_results = pdf_results.merge(
+                                data["documents"][doc_cols],
+                                on='doc_id',
+                                how='left'
+                            )
+                        
+                        # Try merging with meetings
+                        if not data["meetings"].empty and 'meeting_id' in pdf_results.columns:
+                            pdf_results = pdf_results.merge(
+                                data["meetings"][['meeting_id', 'committee_name']],
+                                on='meeting_id',
+                                how='left'
+                            )
+                        
+                        st.session_state.pdf_results = pdf_results
+                        
+                        # Filters
+                        filter_col1, filter_col2 = st.columns(2)
+                        
+                        with filter_col1:
+                            committee_options = ["All"]
+                            if 'committee_name' in pdf_results.columns:
+                                committee_options += sorted(pdf_results['committee_name'].dropna().unique())
+                            elif 'committee_id' in pdf_results.columns:
+                                committee_options += sorted(pdf_results['committee_id'].dropna().unique())
+                            
+                            selected_committee = st.selectbox(
+                                "Filter by committee",
+                                options=committee_options,
+                                key="pdf_committee_filter"
+                            )
+                        
+                        with filter_col2:
+                            type_options = ["All"]
+                            if 'doc_category' in pdf_results.columns:
+                                type_options += sorted(pdf_results['doc_category'].dropna().unique())
+                            
+                            selected_type = st.selectbox(
+                                "Filter by document type",
+                                options=type_options,
+                                key="pdf_type_filter"
+                            )
+                        
+                        # Apply filters
+                        filtered_pdfs = pdf_results.copy()
+                        if selected_committee != "All":
+                            if 'committee_name' in filtered_pdfs.columns:
+                                filtered_pdfs = filtered_pdfs[filtered_pdfs['committee_name'] == selected_committee]
+                            elif 'committee_id' in filtered_pdfs.columns:
+                                filtered_pdfs = filtered_pdfs[filtered_pdfs['committee_id'] == selected_committee]
+                        
+                        if selected_type != "All" and 'doc_category' in filtered_pdfs.columns:
+                            filtered_pdfs = filtered_pdfs[filtered_pdfs['doc_category'] == selected_type]
 
-Answer:"""
+                        # Sort results
+                        filtered_pdfs = sort_results(filtered_pdfs, st.session_state.filters['sort_method'])
 
-                system_prompt = '''
-You are a Council Intelligence Analyst. Your job is to explain the Council’s latest thinking on a topic using real documents.
+                        # Display results
+                        formatted_pdfs = format_pdf_results(filtered_pdfs, data["documents"], data["meetings"])
+                        if not formatted_pdfs.empty:
+                            st.markdown(
+                                formatted_pdfs.to_html(escape=False, index=False),
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            st.warning("No results after filtering")
+                    else:
+                        st.warning("No matching PDF documents found")
+                else:
+                    st.error("Could not load PDF search index or metadata")
+            except Exception as e:
+                st.error(f"Error searching PDFs: {str(e)}")
 
-Instructions:
-1. Compare multiple documents (agenda items and summaries) from different committees and years.
-2. Identify what has changed over time.
-3. Cite each source explicitly.
-4. If sources conflict, highlight that.
+# --------------------------
+# TAB 3: AI SUMMARY
+# --------------------------
+with tabs[2]:
+    st.markdown("""
+    ## Council Records Analysis  
+    Get an AI-powered summary of search results.
+    """)
+    
+    if st.button("Generate Summary", key="generate_ai_summary"):
+        if not st.session_state.get("query"):
+            st.warning("Please perform a search first")
+        elif 'agenda_results' not in st.session_state and 'pdf_results' not in st.session_state:
+            st.warning("No search results available - please perform a search first")
+        else:
+            try:
+                agenda_results = st.session_state.get("agenda_results", pd.DataFrame())
+                pdf_results = st.session_state.get("pdf_results", pd.DataFrame())
+                
+                if agenda_results.empty and pdf_results.empty:
+                    st.warning("No search results to summarize")
+                else:
+                    with st.spinner("Generating AI summary..."):
+                        prompt = build_ai_prompt(
+                            query=st.session_state.query,
+                            agenda_results=agenda_results,
+                            pdf_results=pdf_results,
+                            agendas_df=data["agendas"],
+                            meetings_df=data["meetings"],
+                            documents_df=data["documents"]
+                        )
+                        
+                        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                        response = client.chat.completions.create(
+                            model=GPT_MODEL,
+                            messages=[
+                                {"role": "system", "content": "You're a council policy analyst."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.3
+                        )
+                        
+                        st.markdown(response.choices[0].message.content)
+                        
+                        with st.expander("View search context sent to AI"):
+                            st.text(prompt)
+            except Exception as e:
+                st.error(f"Error generating AI summary: {str(e)}")
 
-If the same idea appears many times, say: “This is consistent across several documents (e.g., [2024 Cabinet], [2023 Council])…”
-
-If only one strong source is found, say: “Only one detailed agenda item was found, from [Committee, Year]…”
-
-Do not speculate. Be clear about uncertainty or missing details.
-'''
-
-                query_vector = client.embeddings.create(input=[question], model="text-embedding-3-small").data[0].embedding
-                query_vector = np.array(query_vector, dtype=np.float32).reshape(1, -1)
-
-                # Load both indexes and metadata
-                with jsonlines.open("data/embeddings/pdf_summaries/metadata_pdf_summaries.jsonl", "r") as reader:
-                    summaries_df = pd.DataFrame(reader)
-                summary_index = faiss.read_index("data/embeddings/pdf_summaries/pdf_summary_index.faiss")
-                summary_D, summary_I = summary_index.search(query_vector, 100)
-
-                with jsonlines.open("data/embeddings/agendas/metadata_agenda.jsonl", "r") as reader:
-                    agenda_df = pd.DataFrame(reader)
-                agenda_index = faiss.read_index("data/embeddings/agendas/agenda_index.faiss")
-                agenda_D, agenda_I = agenda_index.search(query_vector, 100)
-
-                summary_hits = summaries_df.iloc[summary_I[0]].copy()
-                summary_hits["score"] = summary_D[0]
-                summary_hits["source_type"] = "pdf"
-
-                agenda_hits = agenda_df.iloc[agenda_I[0]].copy()
-                agenda_hits["score"] = agenda_D[0]
-                agenda_hits["source_type"] = "agenda"
-
-                # Always send 4 agenda items and 6 summaries
-                agenda_hits = agenda_hits.sort_values("score").drop_duplicates(subset=["chunk_id"]).head(4)
-                summary_hits = summary_hits.sort_values("score").drop_duplicates(subset=["doc_id"]).head(6)
-
-                combined = pd.concat([agenda_hits, summary_hits], ignore_index=True)
-
-                # Merge with document metadata for PDF summaries
-                with jsonlines.open("data/metadata/documents.jsonl", "r") as reader:
-                    documents = pd.DataFrame(reader)
-
-                # Merge PDF summaries to get display_title, committee_name, meeting_date, url
-                pdf_combined = combined[combined["source_type"] == "pdf"]
-                if not pdf_combined.empty:
-                    pdf_combined = pdf_combined.merge(documents, on="doc_id", how="left")
-
-                # For agenda, get agenda metadata for item_title/text
-                with jsonlines.open("data/metadata/agendas.jsonl", "r") as reader:
-                    agenda_meta = pd.DataFrame(reader)
-                agenda_combined = combined[combined["source_type"] == "agenda"]
-                if not agenda_combined.empty:
-                    agenda_combined = agenda_combined.merge(agenda_meta[["agenda_id", "item_title", "item_text"]], left_on="chunk_id", right_on="agenda_id", how="left")
-                    # Load meetings.jsonl to extract web_meeting_code
-                    with jsonlines.open("data/metadata/meetings.jsonl", "r") as reader:
-                        meetings = pd.DataFrame(reader)
-                    agenda_combined = agenda_combined.merge(meetings[["meeting_id", "web_meeting_code"]], on="meeting_id", how="left")
-
-                # Recombine for context building
-                all_combined = pd.concat([pdf_combined, agenda_combined], ignore_index=True, sort=False)
-                all_combined = all_combined.sort_values("score")
-
-                # Build GPT context
-                context = ""
-                for _, row in all_combined.iterrows():
-                    if row["source_type"] == "pdf":
-                        title = row.get("display_title", "Untitled")
-                        raw_date = row.get("meeting_date", None)
-                        meeting_str = "N/A"
-                        try:
-                            if isinstance(raw_date, (float, int)) and not pd.isnull(raw_date):
-                                meeting_dt = pd.to_datetime(int(raw_date), unit="ms", errors="coerce")
-                                meeting_str = meeting_dt.strftime("%-d %b %Y") if pd.notnull(meeting_dt) else "N/A"
-                        except Exception:
-                            meeting_str = str(raw_date)
-                        source_note = f"{row.get('committee_name', 'Unknown Committee')}, {meeting_str}"
-                        heading = f"PDF Summary: {title} ({source_note})\n{row.get('text', '')}\n"
-                        context += heading + "\n---\n\n"
-                    elif row["source_type"] == "agenda":
-                        title = row.get("item_title", "Agenda Item")
-                        text = row.get("item_text", "")
-                        raw_date = row.get("meeting_date", None)
-                        meeting_str = "N/A"
-                        try:
-                            if isinstance(raw_date, (float, int)) and not pd.isnull(raw_date):
-                                meeting_dt = pd.to_datetime(int(raw_date), unit="ms", errors="coerce")
-                                meeting_str = meeting_dt.strftime("%-d %b %Y") if pd.notnull(meeting_dt) else "N/A"
-                        except Exception:
-                            meeting_str = str(raw_date)
-                        source_note = f"{row.get('committee_id', 'Unknown Committee')}, {meeting_str}"
-                        meeting_link = f"https://democracy.kent.gov.uk/ieListDocuments.aspx?MId={row['web_meeting_code']}" if pd.notnull(row.get("web_meeting_code")) else None
-                        heading = f"Agenda Item: {title} ({source_note})\n{text}\n"
-                        if meeting_link:
-                            heading += f"\n[View full meeting]({meeting_link})"
-                        context += heading + "\n---\n\n"
-
-                prompt = build_user_prompt(question, context)
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    temperature=temperature,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                col1, col2 = st.columns([3, 2])
-                with col1:
-                    st.subheader("AI Summary")
-                    st.markdown(response.choices[0].message.content, unsafe_allow_html=True)
-
-                with col2:
-                    st.subheader("Documents Used")
-                    # Always render 4 agenda items and 6 PDF summaries in that order
-                    pdf_links = all_combined[all_combined["source_type"] == "pdf"].head(6).copy()
-                    pdf_links["meeting_str"] = pdf_links["meeting_date"].apply(
-                        lambda d: pd.to_datetime(int(d), unit="ms", errors="coerce").strftime("%b %Y") if pd.notnull(d) and isinstance(d, (int, float)) else ""
-                    )
-                    agenda_links = all_combined[all_combined["source_type"] == "agenda"].head(4).copy()
-                    agenda_links["meeting_str"] = agenda_links["meeting_date"].apply(
-                        lambda d: pd.to_datetime(int(d), unit="ms", errors="coerce").strftime("%b %Y") if pd.notnull(d) and isinstance(d, (int, float)) else ""
-                    )
-                    for _, row in pd.concat([agenda_links, pdf_links]).iterrows():
-                        url = None
-                        title = ""
-                        label = ""
-                        if row["source_type"] == "pdf" and pd.notnull(row.get("url")):
-                            url = row["url"]
-                            title = row.get("display_title", "PDF Document")
-                            meeting_str = row.get("meeting_str", "")
-                            label = f"{title} ({meeting_str})" if meeting_str else title
-                        elif row["source_type"] == "agenda":
-                            title = row.get("item_title", "Agenda Item")
-                            web_meeting_code = row.get("web_meeting_code")
-                            if pd.notnull(web_meeting_code):
-                                url = f"https://democracy.kent.gov.uk/ieListDocuments.aspx?MId={web_meeting_code}"
-                            meeting_str = row.get("meeting_str", "")
-                            label = f"Agenda Item: {title} ({meeting_str})"
-                        if url:
-                            st.markdown(f'<a href="{url}" target="_blank">{label}</a>', unsafe_allow_html=True)
-                        elif label:
-                            st.markdown(label)
-
-                st.markdown("---")
-                with st.expander("📤 What was sent to ChatGPT"):
-                    st.code(prompt, language="markdown")
-
-st.markdown("---")
-st.caption("Coming soon: Ask GPT, Save Search, and Alert Me features.")
+# Debug section (optional)
+if st.checkbox("Show debug info"):
+    with st.expander("Debug: Data Samples"):
+        st.write("Documents sample:", data["documents"].head(1) if not data["documents"].empty else "Empty")
+        st.write("Meetings sample:", data["meetings"].head(1) if not data["meetings"].empty else "Empty")
+        st.write("Agendas sample:", data["agendas"].head(1) if not data["agendas"].empty else "Empty")

@@ -6,7 +6,7 @@ from pathlib import Path
 st.set_page_config(layout="wide", page_title="Council Who's Who")
 
 # Configuration
-TABLES_PATH = Path("/Users/lgfolder/github/council-assistant/data/processed/who_is_who_tables/")
+TABLES_PATH = Path("/Users/lgfolder/github/council-assistant/data/people/reference")
 
 # Load tables with proper type conversion
 @st.cache_data
