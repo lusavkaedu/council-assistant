@@ -16,7 +16,7 @@ https://github.com/lusavkaedu/council-assistant
 - ✅ All easily available previous elections in Kent have been scraped. Cleaning and metadata separation started, needs to be fininshed. 
 - ✅ Councillors profiles scraping module has been developed. Needs to be integrated withthe election data into "Who Is Who" module.
 - 🔜 Streamlit search page needs to be professionalised and published as an MVP.
-- 🔜 Scripts and notebooks and files need to be organsied
+- 🔜 Migrate scripts and notebooks and files need to be organsied into a new folder structure
 - 🔜 Build a Who is Who page for streamlit app, allowing councillors to quickly learn about each other. 
 - 🔜 Build a Meeting Prep page for streamlit app, allowing councillors to prepare for upcoming committee meetings.
 - 🔜 Build a Committee page for streamlit app, allowing users to access past meetings, future meetings agenda, view profiles of the current members, etc.
@@ -114,6 +114,70 @@ for downloading pdfs text, saving it, categorising it, sending for summarisation
 │
 ├── README.md                      # This file
 ```
+
+
+## Target folder structure (need to migrate towards it)
+
+council-assistant/
+├── src/                           # Main application code
+│   ├── council_assistant/         # Core package
+│   │   ├── __init__.py
+│   │   ├── scraping/             # council_scraper → here
+│   │   │   ├── __init__.py
+│   │   │   ├── main_scraper.py
+│   │   │   └── utils/
+│   │   ├── processing/           # pdf_processor → here  
+│   │   │   ├── __init__.py
+│   │   │   ├── pdf_scraper.py
+│   │   │   ├── summarization.py
+│   │   │   ├── embedding.py
+│   │   │   └── utils/
+│   │   ├── search/              # logic → here
+│   │   │   ├── __init__.py
+│   │   │   ├── semantic_search.py
+│   │   │   ├── load_data.py
+│   │   │   └── formatting.py
+│   │   ├── people/              # New organized people module
+│   │   │   ├── __init__.py
+│   │   │   ├── matching.py
+│   │   │   └── cleaning.py
+│   │   └── common/              # utils → here
+│   │       ├── __init__.py
+│   │       ├── documents.py
+│   │       └── elections_helpers/
+│   └── streamlit_app/           # pages → here
+│       ├── __init__.py
+│       ├── main.py              # Main streamlit entry
+│       ├── pages/
+│       └── components/
+│
+├── scripts/                     # Reorganized scripts
+│   ├── data_pipeline/          # Core data processing scripts
+│   │   ├── 01_scrape_meetings.py
+│   │   ├── 02_clean_meetings.py
+│   │   ├── 03_process_pdfs.py
+│   │   ├── 04_embed_content.py
+│   │   └── 05_build_indexes.py
+│   ├── maintenance/            # Utility/maintenance scripts
+│   │   ├── reset_manifests.py
+│   │   ├── rebuild_indexes.py
+│   │   └── validate_data.py
+│   └── experimental/           # Keep experimental scripts separate
+│
+├── notebooks/                  # Organized notebooks
+│   ├── active/                 # Currently used notebooks
+│   │   ├── data_exploration/
+│   │   ├── model_development/
+│   │   └── analysis/
+│   ├── archive/               # Old/completed notebooks
+│   └── scratch/               # Quick experiments
+│
+├── data/                      # Keep existing structure
+├── tests/                     # Add proper tests
+├── docs/                      # Documentation
+├── requirements.txt
+├── setup.py                   # Make it installable
+└── README.md
 
 
 ### 🧱 Architectural Note: Separate Manifests for Agendas and PDFs
