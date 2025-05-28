@@ -230,7 +230,7 @@ if st.session_state.get("query"):
                         client, 
                         agenda_index, 
                         search_metadata["agenda_metadata"],
-                        k=100  # Get more results from FAISS
+                        k=50  # Get more results from FAISS
                     )
                     
                     if not agenda_results.empty:
@@ -317,7 +317,7 @@ if st.session_state.get("query"):
                         client, 
                         pdf_index, 
                         search_metadata["pdf_metadata"],
-                        k=100  # Get more results from FAISS
+                        k=50  # Get more results from FAISS
                     )
                     
                     if not pdf_results.empty:
