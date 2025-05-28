@@ -15,9 +15,9 @@ https://github.com/lusavkaedu/council-assistant
 - ✅ Agenda item and PDF summaries semantic search is working in Streamlit, although the UI needs imrovement
 - ✅ All easily available previous elections in Kent have been scraped. Cleaning and metadata separation started, needs to be fininshed. 
 - ✅ Councillors profiles scraping module has been developed. Needs to be integrated withthe election data into "Who Is Who" module.
-- 🔜 Streamlit search page needs to be professionalised and published as an MVP.
-- 🔜 Migrate scripts and notebooks and files need to be organsied into a new folder structure
+- ✅ Streamlit search page is finalised and published as an MVP.
 - 🔜 Build a Who is Who page for streamlit app, allowing councillors to quickly learn about each other. 
+- 🔜 Migrate scripts and notebooks and files need to be organsied into a new folder structure
 - 🔜 Build a Meeting Prep page for streamlit app, allowing councillors to prepare for upcoming committee meetings.
 - 🔜 Build a Committee page for streamlit app, allowing users to access past meetings, future meetings agenda, view profiles of the current members, etc.
 - 🔜 Extract metadata and entities from all historical council PDFs using NLP. Various document types require slighly different extraction strategies.  WIP.
@@ -444,3 +444,36 @@ utils/
 │   ├── matching_helpers.py
 │   ├── party_cleaning.py
 │   └── ward_cleaning.py
+
+
+## App  - Search Page support module 
+Created modules/search subfolder. It hold everything related to teh search page of the app"
+
+"""
+.
+├── data
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-310.pyc
+│   │   └── loaders.cpython-310.pyc
+│   └── loaders.py                              Data loading utilities with caching, error handling, and validation for JSONL files
+├── people
+├── processing
+├── scraping
+├── search
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── __init__.cpython-310.pyc
+│   │   ├── ai_analysis.cpython-310.pyc           AI prompt building and OpenAI API integration for intelligent analysis of search results
+│   │   ├── result_formatters.cpython-310.pyc     Enhanced table formatting with full-text display, star ratings, clickable links, and pagination controls
+│   │   └── semantic_search.cpython-310.pyc       Core FAISS search functions, embedding generation, and result sorting for both agenda and PDF searches
+│   ├── ai_analysis.py
+│   ├── result_formatters.py
+│   └── semantic_search.py
+└── utils
+    ├── __pycache__
+    │   ├── feedback_system.cpython-310.pyc
+    │   └── logging_system.cpython-310.pyc
+    ├── feedback_system.py                        For Admin Dashboard on search terms
+    └── logging_system.py                         For Admin Dashboard on search terms
+"""
