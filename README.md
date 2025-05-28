@@ -1,32 +1,31 @@
 # 📘 Council Assistant – Project Overview
 
-Council Assistant is a local-government-focused document intelligence platform that helps councillors, journalists, and citizens search, summarise, and interact with council meeting records. It transforms scattered agendas, minutes, and reports into structured, searchable knowledge — using a metadata-indexed RAG pipeline built on OpenAI embeddings and a meeting-centric file organisation. Initial rollout is tested with five newly elected councillors from Kent County Council.
+Council Assistant is a local-government-focused document intelligence platform that helps councillors, journalists, and citizens search, summarise, and interact with council meeting records. It transforms scattered agendas, minutes, and reports into structured, searchable knowledge — using a metadata-indexed RAG pipeline built on OpenAI embeddings and a meeting-centric file organisation. Initial rollout will be tested with five newly elected councillors from Kent County Council.
 
-## 🚀 Quick Start
+## 🚀 GitHub links
 
-1. Clone the repository  
-   ```bash
-   git clone https://github.com/YOUR-REPO-HERE
-   cd council-assistant
-   ```
+https://github.com/lusavkaedu/council-assistant
 
-2. Install dependencies  
-   *(Create a `requirements.txt` manually if needed)*  
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 🛣️ Roadmap (as of 28 May 2025)
 
-3. Run the app  
-   ```bash
-   streamlit run streamlit_app.py
-   ```
+- ✅ Scraped all past meetings from council website, together with the pdf links and pdf text (no copies of pdfs are kept, only full text)
+- ✅ All the meetings split into agenda items, cleaned and embedded.
+- ✅ The scraped pdf links - organised, first 800 words summarised and keywords generated with openAI.
+- ✅ PDF (summary+keywords+ title) combo have been embedded.
+- ✅ Agenda item and PDF summaries semantic search is working in Streamlit, although the UI needs imrovement
+- ✅ All easily available previous elections in Kent have been scraped. Cleaning and metadata separation started, needs to be fininshed. 
+- ✅ Councillors profiles scraping module has been developed. Needs to be integrated withthe election data into "Who Is Who" module.
+- 🔜 Streamlit search page needs to be professionalised and published as an MVP.
+- 🔜 Extract metadata and entities from all historical council PDFs using NLP. Various document types require slighly different extraction strategies.  WIP.
+- 🔜 Embed full text of the scraped council PDFs - not only summaries. Various document types require slighly different chunking strategies.  WIP. 
+- 🔜 Integrate hybrid keyword + semantic search. For now it is only semantic search. 
+- 🔜 Build a Who is Who page for streamlit app, allowing councillors to quickly learn about each other. 
+- 🔜 Build a Meeting Prep page for streamlit app, allowing councillors to prepare for upcoming committee meetings.
+- 🔜 Build a Committee page for streamlit app, allowing users to access past meetings, future meetings agenda, view profiles of the current members, etc.
+- 🔜 Build a Planning Applications module, allowing users to monitor past and current planning applications by geographic area
+- 🔜 Enable councillor alerts and saved search queries
 
-4. Set environment variables  
-   - You will need an OpenAI API key: `OPENAI_API_KEY=your-key-here`
-
----
-
-## 📂 Current Project Structure (as of May 2025)
+## 📂 Current Project Structure (as of 28 May 2025) - needs updating and verifying - not 100% reliable
 
 ```
 council-assistant/
@@ -106,6 +105,12 @@ for downloading pdfs text, saving it, categorising it, sending for summarisation
 │   ├── 
 │   └── 
 │
+├── logic/                      # scripts for the app - search assistance across 2 different FAISS indexes
+│   ├── semantic_search.py       ← FAISS + query logic
+│   ├── load_data.py            ← all JSONL + merging + deduplication
+│   ├── formatting.py           ← format_pdf_document, format_agenda_item
+│   └── gpt_context.py          ← AI Summary context builder (optional)
+│
 ├── README.md                      # This file
 ```
 
@@ -118,7 +123,6 @@ To simplify maintenance and improve clarity, we have split the manifest files in
 - `agenda_manifest.jsonl` independently tracks **web-scraped agenda item chunks**, including chunking, hashing, and embedding.
 
 This avoids overloading a single manifest file and makes it easier to debug or update one pipeline without affecting the other. Each manifest is tightly scoped to its document type but shares a compatible schema (e.g. `doc_id`, `chunk_id`, `text_hash`, `embedding_small`) to support unified embedding and search later on.
-
 
 
 ## 🔄 Data & Pipeline Flow
@@ -152,9 +156,9 @@ This avoids overloading a single manifest file and makes it easier to debug or u
 
 ---
 
-## ✅ Functional Pipeline Summary — Agenda Items (Web-Scraped)
+## ✅ A. Functional Pipeline Summary FOR Agenda Items (Web-Scraped)
 
-## 🕸️ Scraper Module Overview (`council_scraper/`)
+### 🕸️ Scraper Module Overview (`council_scraper/`)
 
 This module contains all scripts and utilities used to scrape public meeting data from local government council websites.
 
@@ -181,7 +185,7 @@ python3 council_scraper/main_scraper.py --start 6000 --end 9800 --committee 144 
 data/meetings/kcc_meetings.jsonl = the main source of information later used for agenda.jsonl, meetings.jsonl, etc. 
 
 
-## 📊 Notebook: 0D_Scraping_EDA_Agenda_Meetings_Metadata.ipynb
+#### 📊 Notebook: 0D_Scraping_EDA_Agenda_Meetings_Metadata.ipynb
 
 This notebook performs **exploratory data analysis (EDA)** and **initial cleaning** on the raw scraped metadata from council meeting agenda pages. It serves as the first diagnostic step in the pipeline, helping to validate the structure and quality of the scraped data before downstream processing.
 
@@ -197,7 +201,7 @@ This notebook performs **exploratory data analysis (EDA)** and **initial cleanin
 - Prepares cleaned metadata for downstream enrichment (e.g., categorisation, filtering, embedding)
 
 
-### 🧾 Script: `scripts/0a_generate_committee_summary.py`
+#### 🧾 Script: `scripts/0a_generate_committee_summary.py`
 
 This script generates a clean, merged summary of all committees based on scraped meeting metadata. It performs the following key tasks:
 
@@ -213,7 +217,7 @@ This script generates a clean, merged summary of all committees based on scraped
 Run this script after scraping new meeting data but **before indexing documents or building committee dashboards**. It ensures your committee list stays up-to-date and consistent across the project.
 
 
-### 🧹 Script `scripts/0b_scraped_meetings_cleaner.py`
+#### 🧹 Script `scripts/0b_scraped_meetings_cleaner.py`
 
 This script processes raw meeting metadata scraped from the council website. It splits the raw scraped data into distinct parts by sperforms the following:
 
@@ -229,11 +233,11 @@ This script processes raw meeting metadata scraped from the council website. It 
 
 Use this script after scraping, and **after cleaning committees names to canonical ones**, and before embedding or summarisation.
 
-### 🧹 Script `scripts/2_prepare_agenda_manifest.py`
+#### 🧹 Script `scripts/2_prepare_agenda_manifest.py`
 
 To support high-quality agenda embedding, notebook named "EDA_agenda_items_detailed_analysis.ipynb" was used to develop and test filtering rules that exclude low-value items (e.g., procedural, redacted, or webcast-only). The process is now codified in the script [`scripts/2_prepare_agenda_manifest.py`], which applies refined logic for `junk_flag` and `embed_status` based on word count, category, and name cues. Approximately **70%** of agenda items were excluded as non-informative, resulting in a reduced and high-signal manifest of **7,198** items saved to [`data/processed_register/agenda_manifest.jsonl`](data/processed_register/agenda_manifest.jsonl). ~70% of items were filtered out and 7,198 retained. 
 
-### 🧠 Script `scripts/4_embedding_master_agendas.py`
+#### 🧠 Script `scripts/4_embedding_master_agendas.py`
 
 This script embeds high-quality agenda items into a FAISS index using OpenAI’s embedding API. It reads from `agenda_manifest.jsonl`, filters out already embedded items, and processes the remaining entries in batches.
 
@@ -244,7 +248,7 @@ This script embeds high-quality agenda items into a FAISS index using OpenAI’s
 
 Run this script after finalising the manifest, and before enabling semantic search in the Streamlit app.
 
-## 🔧 TODO – Embedding Pipeline Enhancements
+### 🔧 TODO – Embedding Pipeline Enhancements
 
 - [ ] **Add manifest auto-backup**  
   Before overwriting `agenda_manifest.jsonl`, write a dated copy to `agenda_manifest_backup_YYYYMMDD.jsonl`.
@@ -265,10 +269,10 @@ Run this script after finalising the manifest, and before enabling semantic sear
   Show counts of total agenda items, embedded, skipped, and errored — for peace of mind.
 
 
-## Documents/PDFs processing track:
+## B.  Documents/PDFs processing track:
 
 
-### 📄 `pdf_processor/claude_scraping_script.py`
+#### 📄 `pdf_processor/claude_scraping_script.py`
 
 This script scrapes council PDFs, extracts full text and metadata, and saves them in a unified structure for downstream processing.
 It verifies whether each PDF has already been scraped (via `.txt` presence or manifest) and skips duplicates.
@@ -277,7 +281,7 @@ Instead of saving individual JSON files, it appends one line per document to a c
 A manifest (`pdf_manifest.jsonl`) tracks scraping status (`scraped: true/false`) and allows safe resumption after interruption.
 
 
-### 📊 `notebooks/Dashboard.ipynb`
+#### 📊 `notebooks/Dashboard.ipynb`
 
 This notebook provides a real-time overview of the scraping pipeline.
 It summarizes progress using `pdf_manifest.jsonl`, tracking documents marked as scraped, summarised, chunked, and embedded.
@@ -286,7 +290,7 @@ Visual timelines display scraping activity down to the minute, helping debug sta
 Designed for interactive use in Jupyter or Streamlit, it supports quick diagnostics and pipeline auditing.
 
 
-### 📊 # pdf_processor/claude_summarization_script.py
+#### 📊 # pdf_processor/claude_summarization_script.py
 <!-- 🔄 one by one GPT Summarisation  -->
 
 - Summarisation now runs via a fault-tolerant batch script using OpenAI GPT. 1 by 1, not in batches. 
@@ -297,19 +301,19 @@ Designed for interactive use in Jupyter or Streamlit, it supports quick diagnost
 
 ### 🧠 Open AI Batch Summarisation Workflow
 
-pdf_processor/submit_batch_job.py
+#### pdf_processor/submit_batch_job.py
 
 Prepares a batch of documents (up to 3500) for OpenAI Batch API processing.
 It selects the most recent documents with full text and metadata, builds prompts, and writes the request file to batch_requests.jsonl.
 Also updates the pdf_manifest.jsonl to flag selected documents as batch_status: "pending".
 
-pdf_processor/upload_batch_to_openai.py
+#### pdf_processor/upload_batch_to_openai.py
 
 Uploads the batch request file to OpenAI’s Batch API.
 Handles file creation and job submission, returning a batch ID for monitoring.
 Must be run once batch_requests.jsonl is ready and OPENAI_API_KEY is set.
 
-pdf_processor/process_batch_results.py
+#### pdf_processor/process_batch_results.py
 
 Processes the results returned by OpenAI’s Batch API (from batch_results.jsonl).
 It extracts summary info (title, summary, keywords), appends to summaries.jsonl, updates the manifest, and generates semantic embeddings using text-embedding-3-small.
@@ -342,65 +346,43 @@ Embeddings are saved in pdf_summary_embeddings.jsonl.
      └── updates manifest (batch_status: complete, summarised: true)
 
 
+## Who is Who Module
 
-### PLAN:
-
-
-### **1. Generate Agenda Chunks** (`1_generate_agenda_chunks.py`)
-
-* Processes all entries in `kcc_meetings.jsonl`
-* Extracts and flattens agenda items into chunks
-* Computes a stable `chunk_id` based on meeting ID and item number
-* Adds a `text_hash` (SHA256) to each chunk for content tracking
-* Filters out empty or irrelevant agenda items (e.g. titles only, no text)
-* Saves full set of raw agenda chunks to `data/chunks/minutes/chunks.jsonl`
-
----
-
-### **2. Update Manifest for Embedding** (`2_update_manifest.py`)
-
-* Compares newly generated chunks to existing `document_manifest.jsonl`
-* Flags new or changed chunks as `ready_for_embedding`
-* Assigns `doc_id = "webscrape_<date>_<meeting_code>"` to each chunk
-* Updates or inserts manifest entries for agenda-derived chunks
-* Ensures previously embedded chunks are not reprocessed if unchanged
-
----
-
-### **3. Embed Agenda Chunks** (`4_embedding_master.py`)
-
-* Reads manifest and embeds only those agenda chunks marked `ready_for_embedding`
-* Skips chunks with `embedding_small = true` and identical `text_hash`
-* Sends batches to OpenAI embedding API (using `text-embedding-3-small` or other model)
-* Stores embedded vectors and metadata to:
-  - `data/embeddings/agenda/metadata.jsonl`
-  - `data/embeddings/agenda/index.faiss`
-* Updates manifest to flag each chunk as embedded
+data/people
+├── raw_sources/                    # Unmodified scraped or imported files
+│   ├── whocanivotefor/            
+│   │   └── kent_candidate_profiles.jsonl
+│   ├── kcc_tv/
+│   │   └── kcc_councillors_scrape_2025-05-25.json
+│   ├── election_results/
+│   │   └── kent_2025_local_election_results.csv
+│   └── ... (other named sources)
+│
+├── cleaned_people/                # Harmonised person records (deduplicated, clean names, stable IDs)
+│   └── people_warehouse.jsonl        # Each person gets a canonical ID and merged fields, canonical person with metadata
+│
+├── reference/              # Helper lookup tables
+│   ├── aliases.json               # Maps known name variants to canonical form, flat lookup used during cleaning/matching
+│   ├── councils.json              # Canonical list of councils
+│   ├── parties.json               # Party standardisation mapping
+│   └── ...
+│
+├── intermediate/                  # Join tables, matches, flags
+│   ├── matched_candidates_to_councillors.csv
+│   ├── unresolved_duplicates.csv
+│   └── ...
+│
+└── logs/                          # Logs from matching and cleaning runs
+    └── name_cleaning_run_2025-05-25.json
 
 
-## DOCUMENTS PDF processing
+## Utilities
 
-1_scrape_docs.py     → just saves PDFs + metadata
-
-2_classify_docs.py   → tags type: "minutes", "agenda", "report", etc
-
-3_process_minutes.py → special handler for minutes
-3_process_decision.py → special handler for minutes
-3_process_prod.py → special handler for minutes
-3_process_eqia.py → special handler for minutes
-3_process_planning_app.py → special handler for minutes
-
-
-
-4_embed_chunks.py    → generic embedding
-
----
-
-## 🛣️ Roadmap (as of May 2025)
-
-- ✅ Core committee and meeting dashboard live
-- ✅ Agenda item semantic search working
-- 🔜 Embed all historical council PDFs
-- 🔜 Add GPT-based summaries and keyword extractions
-- 🔜 Integrate hybrid keyword + semantic search
-- 🔜 Enable councillor alerts and saved search queries
+utils/
+├── __init__.py
+├── documents.py
+├── elections_cleaning_helpers
+│   ├── __init__.py
+│   ├── matching_helpers.py
+│   ├── party_cleaning.py
+│   └── ward_cleaning.py
