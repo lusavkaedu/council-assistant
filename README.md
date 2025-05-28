@@ -16,12 +16,13 @@ https://github.com/lusavkaedu/council-assistant
 - ✅ All easily available previous elections in Kent have been scraped. Cleaning and metadata separation started, needs to be fininshed. 
 - ✅ Councillors profiles scraping module has been developed. Needs to be integrated withthe election data into "Who Is Who" module.
 - 🔜 Streamlit search page needs to be professionalised and published as an MVP.
-- 🔜 Extract metadata and entities from all historical council PDFs using NLP. Various document types require slighly different extraction strategies.  WIP.
-- 🔜 Embed full text of the scraped council PDFs - not only summaries. Various document types require slighly different chunking strategies.  WIP. 
-- 🔜 Integrate hybrid keyword + semantic search. For now it is only semantic search. 
+- 🔜 Scripts and notebooks and files need to be organsied
 - 🔜 Build a Who is Who page for streamlit app, allowing councillors to quickly learn about each other. 
 - 🔜 Build a Meeting Prep page for streamlit app, allowing councillors to prepare for upcoming committee meetings.
 - 🔜 Build a Committee page for streamlit app, allowing users to access past meetings, future meetings agenda, view profiles of the current members, etc.
+- 🔜 Extract metadata and entities from all historical council PDFs using NLP. Various document types require slighly different extraction strategies.  WIP.
+- 🔜 Embed full text of the scraped council PDFs - not only summaries. Various document types require slighly different chunking strategies.  WIP. 
+- 🔜 Integrate hybrid keyword + semantic search. For now it is only semantic search. 
 - 🔜 Build a Planning Applications module, allowing users to monitor past and current planning applications by geographic area
 - 🔜 Enable councillor alerts and saved search queries
 
