@@ -1,0 +1,96 @@
+=== 2025-05-15 07:00:00 ===
+Found 28 article links.
+Added 1 new articles.
+
+Found 28 article links.
+No new articles found.
+=== 2025-05-16 07:00:00 ===
+Found 26 article links.
+No new articles found.
+Found 26 article links.
+No new articles found.
+
+=== 2025-05-17 07:00:00 ===
+Found 26 article links.
+Added 2 new articles.
+
+Found 26 article links.
+No new articles found.
+=== 2025-05-18 07:00:00 ===
+Found 26 article links.
+No new articles found.
+Found 26 article links.
+No new articles found.
+
+=== 2025-05-19 07:00:00 ===
+Found 26 article links.
+No new articles found.
+
+Found 26 article links.
+No new articles found.
+=== 2025-05-20 07:00:00 ===
+Found 25 article links.
+No new articles found.
+
+Found 25 article links.
+No new articles found.
+=== 2025-05-21 07:00:00 ===
+Found 24 article links.
+No new articles found.
+
+Found 24 article links.
+No new articles found.
+=== 2025-05-22 07:51:33 ===
+Error fetching https://www.kentonline.co.uk/categories/politics/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /categories/politics/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1049fbaf0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/categories/politics-podcasts/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /categories/politics-podcasts/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1049fbb50>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/categories/elections/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /categories/elections/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1049fbc70>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/westminster-watch-kent/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /westminster-watch-kent/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1049fbc40>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/westminster-watch-medway/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /westminster-watch-medway/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1049fada0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Found 0 article links.
+No new articles found.
+
+=== 2025-05-23 07:00:03 ===
+Found 28 article links.
+Added 5 new articles.
+Found 28 article links.
+No new articles found.
+
+=== 2025-05-24 07:00:05 ===
+Found 27 article links.
+No new articles found.
+Found 27 article links.
+No new articles found.
+
+=== 2025-05-25 07:00:05 ===
+Found 26 article links.
+No new articles found.
+Found 26 article links.
+No new articles found.
+
+=== 2025-05-26 07:00:03 ===
+Found 26 article links.
+No new articles found.
+Found 26 article links.
+No new articles found.
+
+=== 2025-05-26 11:54:14 ===
+Error fetching https://www.kentonline.co.uk/categories/politics/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /categories/politics/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1078f7850>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/categories/politics-podcasts/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /categories/politics-podcasts/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1078f78b0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/categories/elections/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /categories/elections/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1078f79d0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/westminster-watch-kent/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /westminster-watch-kent/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1078f79a0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Error fetching https://www.kentonline.co.uk/westminster-watch-medway/: HTTPSConnectionPool(host='www.kentonline.co.uk', port=443): Max retries exceeded with url: /westminster-watch-medway/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x1078f6b00>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))
+Found 0 article links.
+No new articles found.
+
+=== 2025-05-27 07:00:05 ===
+Found 26 article links.
+No new articles found.
+Found 26 article links.
+No new articles found.
+
+=== 2025-05-28 07:00:04 ===
+Found 25 article links.
+No new articles found.
+Found 25 article links.
+No new articles found.
+
