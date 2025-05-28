@@ -128,7 +128,7 @@ if not validate_data_integrity(data):
 # Alternative approach: Let the widget manage its own state
 query = st.text_input(
     "Search all council records:",
-    placeholder="e.g., 'road closures in Kent', 'SEND schools new places', 'climate change initiatives'",
+    placeholder="e.g., 'Why road closures in Kent are so frequent?', 'SEND schools new places', 'DEI initiatives'",
     key="search_input_direct",
     help="Enter keywords related to topics you're interested in. The search will look through agenda items and document summaries."
 )
