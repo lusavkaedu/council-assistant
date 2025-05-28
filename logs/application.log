@@ -1,0 +1,55 @@
+2025-05-28 12:59:08,473 - CouncilAssistant - ERROR - data_loading_error: log_performance() takes 2 positional arguments but 3 were given
+2025-05-28 12:59:13,150 - CouncilAssistant - ERROR - data_loading_error: log_performance() takes 2 positional arguments but 3 were given
+2025-05-28 12:59:17,278 - CouncilAssistant - ERROR - data_loading_error: log_performance() takes 2 positional arguments but 3 were given
+2025-05-28 13:01:38,914 - CouncilAssistant - ERROR - data_loading_error: log_performance() takes 2 positional arguments but 3 were given
+2025-05-28 13:01:59,310 - CouncilAssistant - ERROR - data_loading_error: log_performance() takes 2 positional arguments but 3 were given
+2025-05-28 13:02:29,089 - CouncilAssistant - ERROR - data_loading_error: log_performance() takes 2 positional arguments but 3 were given
+2025-05-28 13:05:28,264 - CouncilAssistant - INFO - Performance: data_loading took 0.23s
+2025-05-28 13:05:33,664 - CouncilAssistant - INFO - Performance: data_loading took 0.22s
+2025-05-28 13:07:53,726 - CouncilAssistant - INFO - Performance: data_loading took 0.30s
+2025-05-28 13:07:58,454 - CouncilAssistant - INFO - Performance: data_loading took 0.17s
+2025-05-28 13:08:00,259 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:08:00,341 - CouncilAssistant - INFO - Search: 'mermaids' in Meeting Discussions -> 100 results
+2025-05-28 13:08:01,284 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:08:01,324 - CouncilAssistant - INFO - Search: 'mermaids' in Documents & Reports -> 100 results
+2025-05-28 13:11:16,450 - CouncilAssistant - INFO - Performance: data_loading took 0.26s
+2025-05-28 13:11:19,957 - CouncilAssistant - INFO - Performance: data_loading took 0.24s
+2025-05-28 13:11:22,450 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:22,496 - CouncilAssistant - INFO - Search: 'mermaids' in Meeting Discussions -> 100 results
+2025-05-28 13:11:23,119 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:23,177 - CouncilAssistant - INFO - Search: 'mermaids' in Documents & Reports -> 100 results
+2025-05-28 13:11:37,507 - CouncilAssistant - INFO - Performance: data_loading took 0.26s
+2025-05-28 13:11:38,134 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:38,164 - CouncilAssistant - INFO - Search: 'mermaids' in Meeting Discussions -> 100 results
+2025-05-28 13:11:38,994 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:39,046 - CouncilAssistant - INFO - Search: 'mermaids' in Documents & Reports -> 100 results
+2025-05-28 13:11:46,958 - CouncilAssistant - INFO - Performance: data_loading took 0.28s
+2025-05-28 13:11:47,591 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:47,617 - CouncilAssistant - INFO - Search: 'asylum seekers' in Meeting Discussions -> 100 results
+2025-05-28 13:11:48,295 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:48,347 - CouncilAssistant - INFO - Search: 'asylum seekers' in Documents & Reports -> 100 results
+2025-05-28 13:11:55,808 - CouncilAssistant - INFO - Performance: data_loading took 0.20s
+2025-05-28 13:11:56,297 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:56,315 - CouncilAssistant - INFO - Search: 'asylum seekers' in Meeting Discussions -> 100 results
+2025-05-28 13:11:56,938 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
+2025-05-28 13:11:56,970 - CouncilAssistant - INFO - Search: 'asylum seekers' in Documents & Reports -> 100 results
+2025-05-28 13:12:08,705 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-28 13:12:08,725 - CouncilAssistant - INFO - Performance: ai_analysis took 11.74s
+2025-05-28 13:13:25,700 - CouncilAssistant - INFO - Performance: data_loading took 0.24s
+2025-05-28 13:13:33,318 - CouncilAssistant - INFO - Performance: data_loading took 0.28s
+2025-05-28 13:15:02,304 - CouncilAssistant - INFO - Performance: data_loading took 0.29s
+2025-05-28 13:15:10,151 - CouncilAssistant - INFO - Performance: data_loading took 0.26s
+2025-05-28 13:15:12,558 - CouncilAssistant - INFO - Performance: data_loading took 0.18s
+2025-05-28 13:15:14,948 - CouncilAssistant - INFO - Performance: data_loading took 0.16s
+2025-05-28 13:15:23,365 - CouncilAssistant - INFO - Performance: data_loading took 0.23s
+2025-05-28 13:17:36,858 - CouncilAssistant - INFO - Performance: data_loading took 0.30s
+2025-05-28 13:17:38,852 - CouncilAssistant - INFO - Performance: data_loading took 0.19s
+2025-05-28 13:18:01,030 - CouncilAssistant - INFO - Performance: data_loading took 0.28s
+2025-05-28 13:18:06,155 - CouncilAssistant - INFO - Performance: data_loading took 0.16s
+2025-05-28 13:18:06,160 - CouncilAssistant - INFO - Feedback received: Bug Report - Search not working
+2025-05-28 13:18:06,353 - CouncilAssistant - INFO - Performance: data_loading took 0.13s
+2025-05-28 13:30:00,432 - CouncilAssistant - INFO - Performance: data_loading took 0.28s
+2025-05-28 13:30:02,639 - CouncilAssistant - INFO - Performance: data_loading took 0.17s
+2025-05-28 13:30:08,721 - CouncilAssistant - INFO - Performance: data_loading took 0.26s
+2025-05-28 13:30:20,983 - CouncilAssistant - INFO - Performance: data_loading took 0.28s
+2025-05-28 13:30:22,103 - CouncilAssistant - INFO - Performance: data_loading took 0.16s
