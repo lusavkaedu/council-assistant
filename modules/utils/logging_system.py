@@ -17,7 +17,7 @@ class CouncilLogger:
     
     def __init__(self, log_dir: Path = None):
         if log_dir is None:
-            log_dir = Path("/Users/lgfolder/github/council-assistant/logs")
+            log_dir = Path("./logs")
         
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(exist_ok=True)
