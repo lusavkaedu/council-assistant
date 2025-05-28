@@ -119,66 +119,59 @@ for downloading pdfs text, saving it, categorising it, sending for summarisation
 ## Target folder structure (need to migrate towards it)
 
 council-assistant/
-├── src/                           # Main application code
-│   ├── council_assistant/         # Core package
-│   │   ├── __init__.py
-│   │   ├── scraping/             # council_scraper → here
-│   │   │   ├── __init__.py
-│   │   │   ├── main_scraper.py
-│   │   │   └── utils/
-│   │   ├── processing/           # pdf_processor → here  
-│   │   │   ├── __init__.py
-│   │   │   ├── pdf_scraper.py
-│   │   │   ├── summarization.py
-│   │   │   ├── embedding.py
-│   │   │   └── utils/
-│   │   ├── search/              # logic → here
-│   │   │   ├── __init__.py
-│   │   │   ├── semantic_search.py
-│   │   │   ├── load_data.py
-│   │   │   └── formatting.py
-│   │   ├── people/              # New organized people module
-│   │   │   ├── __init__.py
-│   │   │   ├── matching.py
-│   │   │   └── cleaning.py
-│   │   └── common/              # utils → here
-│   │       ├── __init__.py
-│   │       ├── documents.py
-│   │       └── elections_helpers/
-│   └── streamlit_app/           # pages → here
-│       ├── __init__.py
-│       ├── main.py              # Main streamlit entry
-│       ├── pages/
-│       └── components/
+├── app.py                      # Main Streamlit entry point
+├── requirements.txt            # Dependencies for your app
+├── README.md
 │
-├── scripts/                     # Reorganized scripts
-│   ├── data_pipeline/          # Core data processing scripts
+├── pages/                      # Streamlit pages (your current structure)
+│   ├── Search_Council_Records.py
+│   ├── Who_Is_Who.py
+│   ├── Committee_Browser.py
+│   └── Ask_GPT.py
+│
+├── modules/                    # Your core application logic
+│   ├── scraping/              # council_scraper → here
+│   │   ├── __init__.py
+│   │   ├── main_scraper.py
+│   │   └── utils/
+│   ├── processing/            # pdf_processor → here  
+│   │   ├── __init__.py
+│   │   ├── pdf_scraper.py
+│   │   ├── summarization.py
+│   │   └── utils/
+│   ├── search/               # logic → here
+│   │   ├── __init__.py
+│   │   ├── semantic_search.py
+│   │   ├── load_data.py
+│   │   └── formatting.py
+│   ├── people/               # New organized people module
+│   │   ├── __init__.py
+│   │   ├── matching.py
+│   │   └── cleaning.py
+│   └── utils/                # utils → here
+│       ├── __init__.py
+│       ├── documents.py
+│       └── elections_helpers/
+│
+├── scripts/                   # Data processing scripts (run separately)
+│   ├── pipeline/             # Core data processing pipeline
 │   │   ├── 01_scrape_meetings.py
 │   │   ├── 02_clean_meetings.py
 │   │   ├── 03_process_pdfs.py
 │   │   ├── 04_embed_content.py
 │   │   └── 05_build_indexes.py
-│   ├── maintenance/            # Utility/maintenance scripts
+│   ├── maintenance/          # Utility/maintenance scripts
 │   │   ├── reset_manifests.py
 │   │   ├── rebuild_indexes.py
 │   │   └── validate_data.py
-│   └── experimental/           # Keep experimental scripts separate
+│   └── experimental/         # Draft/test scripts
 │
-├── notebooks/                  # Organized notebooks
-│   ├── active/                 # Currently used notebooks
-│   │   ├── data_exploration/
-│   │   ├── model_development/
-│   │   └── analysis/
-│   ├── archive/               # Old/completed notebooks
-│   └── scratch/               # Quick experiments
+├── notebooks/                # Analysis notebooks
+│   ├── active/              # Currently used notebooks
+│   ├── archive/             # Old/completed notebooks
+│   └── scratch/             # Quick experiments
 │
-├── data/                      # Keep existing structure
-├── tests/                     # Add proper tests
-├── docs/                      # Documentation
-├── requirements.txt
-├── setup.py                   # Make it installable
-└── README.md
-
+└── data/                    # data files
 
 ### 🧱 Architectural Note: Separate Manifests for Agendas and PDFs
 
