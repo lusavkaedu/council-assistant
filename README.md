@@ -175,6 +175,9 @@ council-assistant/
 │   └── utils/                     # Reserved utilities
 │
 ├── .env                           # Environment variables (OpenAI API keys)
+├── streamlit/   
+│   ├── config.toml   
+│   ├── .secrets.toml 
 └── README.md                      # Project documentation
 ```
 
