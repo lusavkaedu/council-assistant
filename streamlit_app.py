@@ -126,7 +126,7 @@ with st.spinner("Loading council data..."):
     data = load_base_data(PATHS)
     search_metadata = load_search_metadata(PATHS)
 
-git config pull.rebase false# Validate data
+# Validate data
 if not validate_data_integrity(data):
     st.stop()
 
