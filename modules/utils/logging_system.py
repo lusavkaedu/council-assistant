@@ -47,6 +47,13 @@ class CouncilLogger:
     def _write_jsonl(self, filepath: Path, data: Dict[str, Any]):
         """Write a single JSON line to a log file"""
         try:
+            # Ensure the directory exists
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Create the file if it doesn't exist
+            if not filepath.exists():
+                filepath.touch()
+            
             with open(filepath, 'a', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, default=str)
                 f.write('\n')
