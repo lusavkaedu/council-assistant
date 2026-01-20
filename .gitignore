@@ -2,11 +2,14 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
+*.pyo
+*.pyd
 *.so
 .Python
 env/
 venv/
-.venv
+.venv/
 *.egg-info/
 dist/
 build/
@@ -28,7 +31,38 @@ Thumbs.db
 # Environment
 .env
 .env.local
+*.env
+.streamlit/secrets.toml
 
 # Logs
 log/
+logs/*.jsonl
+logs/*.log
+!logs/.gitkeep
 *.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Ignore all data files except for README.md (whitelist pattern)
+data/*
+!data/README.md
+
+# Legacy storage folder
+storage/storage/*.json
+
+# INCLUDE ESSENTIAL DATA FILES FOR DEPLOYMENT
+# Override previous exclusions for data files
+!data/
+!data/metadata/
+!data/metadata/*.jsonl
+!data/embeddings/
+!data/embeddings/*/
+!data/embeddings/*/*.faiss
+!data/embeddings/*/*.jsonl
+
+# Still exclude these large/unnecessary data files
+data/pdf_full_text/
+data/pdf_metadata/
+data/processed_register/.DS_Store
