@@ -23,9 +23,9 @@ if os.getenv("STREAMLIT_SHARING") or os.getenv("STREAMLIT_CLOUD") or not Path("/
     ROOT_FOLDER = Path(".")
     DATA_FOLDER = ROOT_FOLDER / "data"
 else:
-    # Local development - use absolute path
+    # Local development - use shared data location
     ROOT_FOLDER = Path("/Users/lgfolder/github/council-assistant")
-    DATA_FOLDER = ROOT_FOLDER / "data"
+    DATA_FOLDER = Path("/Users/lgfolder/github/shared_data/councils/council-assistant/data")
 
 PATHS = {
     "meetings": DATA_FOLDER / "metadata/meetings.jsonl",
